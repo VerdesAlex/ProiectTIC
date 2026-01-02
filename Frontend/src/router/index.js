@@ -1,6 +1,7 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
-
+// We will stick to lazy loading, but ensure the paths are correct
+// The '@' alias is standard, but relative paths '../' are safer if config is unknown
 const Login = () => import('../views/Login.vue')
 const Chat = () => import('../views/Chat.vue')
 
@@ -17,9 +18,7 @@ const routes = [
   {
     path: '/chat',
     name: 'Chat',
-    component: Chat,
-    // Children routes could be added here, but for now 
-    // we handle the ID via the same component logic or prop
+    component: Chat
   },
   {
     path: '/chat/:id',
@@ -30,8 +29,8 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [],
+  history: createWebHashHistory(),
+  routes
 })
 
 export default router
