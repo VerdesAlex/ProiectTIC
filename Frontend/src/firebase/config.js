@@ -3,8 +3,8 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBtNDF_6H7IdHO9SqdI2F5YAmaQDycHtA0",
-  authDomain: "proiecttic-43787.firebaseapp.com",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: "proiecttic-43787",
   storageBucket: "proiecttic-43787.firebasestorage.app",
   messagingSenderId: "235718467712",
