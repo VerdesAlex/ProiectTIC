@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const morgan = require('morgan');
+const db = require('./db');
 require('dotenv').config();
 
 const app = express();
@@ -21,7 +22,6 @@ app.get('/', (req, res) => {
     aiUrl: process.env.LOCAL_AI_API_URL
   });
 });
-
 
 
 app.listen(PORT, () => {
