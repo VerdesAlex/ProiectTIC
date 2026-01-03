@@ -17,21 +17,52 @@ app.get('/test', (req, res) => {
 
 // 2. The Chat Route
 app.post('/api/chat', validateFirebaseToken, async (req, res) => {
-  console.log("Route /api/chat hit!");
   try {
-    const { message } = req.body;
+    const { message, conversationId } = req.body;
     const { uid } = req.user;
 
-    const convRef = db.collection('conversations').doc();
-    await convRef.set({
+    let convRef;
+
+    if (conversationId) {
+      // 1. Use existing conversation
+      convRef = db.collection('conversations').doc(conversationId);
+    } else {
+      // 2. Create new conversation
+      convRef = db.collection('conversations').doc();
+      await convRef.set({
+        ownerId: uid,
+        createdAt: new Date(),
+        title: message.length > 30 ? message.substring(0, 30) + '...' : message,
+        lastMessage: message
+      });
+    }
+
+    // 3. Save the message to the sub-collection
+    await convRef.collection('messages').add({
+      content: message,
+      role: 'user',
       ownerId: uid,
-      createdAt: new Date(),
-      lastMessage: message
+      timestamp: new Date()
     });
 
-    res.json({ success: true, message: "Firestore write successful!" });
+    // 4. (Optional) Here is where you would call OpenAI/Ollama
+    const aiResponse = "I have received your message and saved it!";
+
+    // Save AI response to Firestore too
+    await convRef.collection('messages').add({
+      content: aiResponse,
+      role: 'assistant',
+      ownerId: uid,
+      timestamp: new Date()
+    });
+
+    res.json({ 
+      success: true, 
+      conversationId: convRef.id, 
+      aiResponse: aiResponse 
+    });
+
   } catch (error) {
-    console.error("Firestore Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
