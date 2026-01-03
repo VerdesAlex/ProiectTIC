@@ -1,25 +1,38 @@
 <template>
-  <div id="app">
-    <h1>LocalMind AI</h1>
-    <hr />
-    <AuthTest />
+  <div class="app-wrapper">
+    <ChatLayout 
+      v-if="user" 
+      :userEmail="user.email" 
+      :userId="user.uid" 
+      @logout="handleLogout"
+    />
+    
+    <AuthTest v-else />
   </div>
 </template>
 
 <script setup>
-import AuthTest from './components/AuthTest.vue'
+import { ref, onMounted } from 'vue';
+import { authService } from './firebase/authService';
+import AuthTest from './components/AuthTest.vue';
+import ChatLayout from './components/ChatLayout.vue';
+
+const user = ref(null);
+
+onMounted(() => {
+  authService.onAuthChange((currentUser) => {
+    user.value = currentUser;
+  });
+});
+
+const handleLogout = async () => {
+  await authService.logout();
+  user.value = null;
+};
 </script>
 
 <style>
-/* Basic styling just to make it readable */
-#app {
-  font-family: sans-serif;
-  max-width: 400px;
-  margin: 50px auto;
-  padding: 20px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-}
-input { display: block; width: 100%; margin-bottom: 10px; padding: 8px; }
-button { margin-right: 10px; padding: 8px 16px; cursor: pointer; }
+/* Reset body styles for full screen app */
+body, html { margin: 0; padding: 0; height: 100%; }
+.app-wrapper { height: 100vh; }
 </style>
