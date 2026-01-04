@@ -9,7 +9,15 @@
           @click="selectChat(chat.id)"
           :class="['history-item', { active: currentChatId === chat.id }]"
         >
-          {{ chat.title || 'Untitled Chat' }}
+          <span class="chat-title">{{ chat.title || 'Untitled Chat' }}</span>
+          
+          <button 
+            class="delete-btn" 
+            @click.stop="handleDelete(chat.id)"
+            title="Delete Chat"
+          >
+            ×
+          </button>
         </div>
       </div>
       <div class="user-footer">
@@ -103,48 +111,45 @@ const sendMessage = async () => {
 
   // TODO: Here is where we will call your Express Backend
   // For now, let's simulate a delay
+  const assistantMsgIndex = messages.value.push({ role: 'assistant', content: '' }) - 1;
+
   try {
     const token = await auth.currentUser.getIdToken();
-    
-    // 2. Call your Express Backend
     const response = await fetch('http://localhost:3000/api/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      // We send the message AND the current conversationId (if we have one)
-      body: JSON.stringify({ 
-        message: text,
-        conversationId: currentChatId.value 
-      })
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ message: text, conversationId: currentChatId.value })
     });
 
-    const data = await response.json();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
 
-    if (data.success) {
-      // 3. Update the currentChatId if this was a new chat
-      if (!currentChatId.value) {
-        currentChatId.value = data.conversationId;
-        // Refresh history list so the new chat shows up in the sidebar
-        await fetchHistory(); 
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = JSON.parse(line.slice(6));
+          // Append the new character to the existing assistant message
+          messages.value[assistantMsgIndex].content += data.content;
+          scrollToBottom();
+        }
       }
-
-      // 4. UI: Push the AI response (using the message from the server)
-      messages.value.push({ 
-        role: 'assistant', 
-        content: data.aiResponse || "Message saved to Cloud Firestore!" 
-      });
     }
   } catch (err) {
-    console.error("Chat Error:", err);
-    messages.value.push({ role: 'assistant', content: "Error: Could not reach the server." });
+    console.error("Stream error:", err);
+    // Only show error if we haven't received any content yet
+    if (messages.value[assistantMsgIndex].content === '') {
+      messages.value[assistantMsgIndex].content = "Error connecting to AI.";
+    }
   } finally {
     isTyping.value = false;
-    await scrollToBottom();
   }
 };
-
 const createNewChat = () => {
   messages.value = [];
   currentChatId.value = null;
@@ -172,6 +177,23 @@ const selectChat = async (id) => {
     isTyping.value = false;
   }
 };
+
+const handleDelete = async (id) => {
+if (!confirm("Delete this conversation?")) return;
+  try {
+    const token = await auth.currentUser.getIdToken();
+    await chatService.deleteConversation(id, token); // Now calls the backend
+    
+    history.value = history.value.filter(c => c.id !== id);
+    if (currentChatId.value === id) {
+      messages.value = [];
+      currentChatId.value = null;
+    }
+  } catch (err) {
+    console.error("Delete failed:", err);
+  }
+};
+
 </script>
 
 <style scoped>
@@ -188,12 +210,55 @@ const selectChat = async (id) => {
 }
 
 .history-list { flex: 1; overflow-y: auto; }
-.history-item { 
-  padding: 10px; cursor: pointer; border-radius: 5px; 
-  font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.history-item {
+  display: flex;
+  justify-content: space-between; /* Pushes the X to the end */
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.2s;
+  position: relative;
+  color: #ececec;
 }
-.history-item:hover { background: #2a2b32; }
-.history-item.active { background: #343541; }
+
+.history-item:hover {
+  background: #2a2b32;
+}
+
+.history-item.active {
+  background: #343541;
+}
+
+.chat-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 10px;
+}
+
+/* The "×" button styling */
+.delete-btn {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 1.2rem;
+  padding: 0 5px;
+  cursor: pointer;
+  opacity: 0; /* Hidden by default */
+  transition: opacity 0.2s, color 0.2s;
+}
+
+/* Show the X only when hovering the row */
+.history-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  color: #ff4d4d; /* Turns red on hover */
+}
 
 .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; }
 
