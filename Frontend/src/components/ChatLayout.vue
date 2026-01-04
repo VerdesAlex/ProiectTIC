@@ -133,10 +133,20 @@ const sendMessage = async () => {
 
       for (const line of lines) {
         if (line.startsWith("data: ")) {
-          const data = JSON.parse(line.slice(6));
-          // Append the new character to the existing assistant message
-          messages.value[assistantMsgIndex].content += data.content;
-          scrollToBottom();
+          try {
+            const data = JSON.parse(line.slice(6));
+            
+            // GUARD: Only append if data.content is not null/undefined
+            if (data.content) {
+              messages.value[assistantMsgIndex].content += data.content;
+              scrollToBottom();
+            }
+          } catch (e) {
+            // Logic for when the stream sends "done" signal
+            if (line.includes('"done":true')) {
+              console.log("Stream finished successfully");
+            }
+          }
         }
       }
     }
