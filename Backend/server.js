@@ -46,7 +46,24 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
     });
 
     // 4. (Optional) Here is where you would call OpenAI/Ollama
-    const aiResponse = "I have received your message and saved it!";
+    console.log("Requesting response from LM Studio...");
+    
+    const lmResponse = await fetch("http://localhost:1234/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "local-model", // LM Studio ignores this and uses whatever is loaded
+        messages: [
+          { role: "system", content: "You are LocalMind, a helpful AI assistant running locally." },
+          { role: "user", content: message }
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    const aiData = await lmResponse.json();
+    const aiResponse = aiData.choices[0].message.content;
+    console.log("Local AI replied!");
 
     // Save AI response to Firestore too
     await convRef.collection('messages').add({
@@ -56,6 +73,8 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
       timestamp: new Date()
     });
 
+    await convRef.update({ lastMessage: aiResponse });
+
     res.json({ 
       success: true, 
       conversationId: convRef.id, 
@@ -63,7 +82,8 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Local AI Error:", error);
+    res.status(500).json({ error: "Local AI server is offline. Please start LM Studio." });
   }
 });
 
