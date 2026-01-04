@@ -45,6 +45,10 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
       timestamp: new Date()
     });
 
+    const history = historySnapshot.docs.map(doc => ({
+      role: doc.data().role,
+      content: doc.data().content
+    })).reverse();
     // 4. (Optional) Here is where you would call OpenAI/Ollama
     console.log("Requesting response from LM Studio...");
     
@@ -52,10 +56,10 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "local-model", // LM Studio ignores this and uses whatever is loaded
+        model: "local-model",
         messages: [
-          { role: "system", content: "You are LocalMind, a helpful AI assistant running locally." },
-          { role: "user", content: message }
+          { role: "system", content: "You are LocalMind, a helpful AI assistant." },
+          ...history // This inserts the previous 6 messages into the prompt
         ],
         temperature: 0.7,
       }),
