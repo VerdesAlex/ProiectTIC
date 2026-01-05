@@ -1,5 +1,5 @@
 import { db } from './config';
-import { collection, query, where, orderBy, getDocs } from "firebase/firestore";
+import { collection, query, where, orderBy, getDocs, deleteDoc, doc} from "firebase/firestore";
 
 export const chatService = {
   async getUserConversations(uid) {
@@ -17,5 +17,14 @@ export const chatService = {
     const q = query(messagesRef, orderBy("timestamp", "asc"));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(doc => doc.data());
+  },
+  async deleteConversation(id, token) {
+    const response = await fetch(`http://localhost:3000/api/conversation/${id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    return await response.json();
   }
 };
