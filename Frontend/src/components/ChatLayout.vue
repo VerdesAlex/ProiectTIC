@@ -50,9 +50,11 @@
 
       <div class="input-area">
         <textarea 
+          ref="textareaRef"
           v-model="userInput" 
-          @keyup.enter.exact.prevent="sendMessage"
-          placeholder="Type your message..."
+          @input="adjustHeight"
+          @keydown.enter.exact.prevent="sendMessage"
+          placeholder="Type your message here..."
           rows="1"
         ></textarea>
         <button @click="sendMessage" :disabled="!userInput.trim() || isTyping">
@@ -64,7 +66,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick, watch } from 'vue';
 import { chatService } from '../firebase/chatService';
 import { auth } from '../firebase/config';
 
@@ -106,19 +108,35 @@ const scrollBox = ref(null);
 const textareaRef = ref(null); // Create a ref for the textarea element
 
 const adjustHeight = () => {
-  const textarea = textareaRef.value;
-  if (!textarea) return;
+  const el = textareaRef.value;
+  if (!el) return;
 
-  // Reset height to calculate correctly
-  textarea.style.height = 'auto';
+  // 1. Force the height to 'auto' to get the "true" scrollHeight of the content
+  el.style.height = 'auto';
+
+  // 2. Set the height to the scrollHeight
+  // We add 2px to prevent slight "jitter" or "shaking"
+  const newHeight = el.scrollHeight;
   
-  // Set height based on content (max 200px)
-  const newHeight = Math.min(textarea.scrollHeight, 200);
-  textarea.style.height = newHeight + 'px';
+  if (newHeight > 200) {
+    el.style.height = '200px';
+    el.style.overflowY = 'auto'; // Show scrollbar only at max height
+  } else {
+    el.style.height = (newHeight) + 'px';
+    el.style.overflowY = 'hidden';
+  }
 };
 
+watch(userInput, async () => {
+  await nextTick();
+  adjustHeight();
+});
+
+// onMounted(() => {
+//   adjustHeight();
+// });
+
 // We need to call this whenever userInput changes
-import { watch } from 'vue';
 watch(userInput, () => {
   nextTick(adjustHeight);
 });
@@ -149,6 +167,10 @@ const sendMessage = async () => {
 
   const text = userInput.value;
   userInput.value = '';
+
+  if (textareaRef.value) {
+    textareaRef.value.style.height = 'auto';
+  }
   
   // 1. Add User message to UI
   messages.value.push({ role: 'user', content: text });
@@ -345,13 +367,34 @@ if (!confirm("Delete this conversation?")) return;
 .assistant .bubble-content { background: #e9e9eb; color: #333; border-bottom-left-radius: 2px; }
 
 .input-area { 
-  padding: 20px 15%; background: white; border-top: 1px solid #eee;
-  display: flex; gap: 10px;
+  padding: 20px 15%; 
+  background: white; 
+  border-top: 1px solid #eee;
+  display: flex; 
+  gap: 10px;
+  align-items: flex-end; /* Keeps button at the bottom as textarea grows */
 }
 
-textarea { 
-  flex: 1; border: 1px solid #ddd; border-radius: 5px; padding: 10px;
-  resize: none; outline: none; font-family: inherit;
+textarea {
+  flex: 1;
+  min-height: 44px; /* The starting height */
+  height: 44px;     /* Initial fixed height */
+  max-height: 200px; 
+  
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  color: var(--text-main);
+  
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  
+  resize: none;
+  overflow-y: hidden; /* This is key: hide scrollbar so it doesn't interfere with measurement */
+  outline: none;
+  box-sizing: border-box; /* Crucial for padding calculation */
 }
 
 button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
