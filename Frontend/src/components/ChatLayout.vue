@@ -229,34 +229,28 @@ const stopGeneration = () => {
   }
 };
 
-/*
+
+/* TODO fix stop genration btn issue
 const sendMessage = async () => {
   if (!userInput.value.trim() || isTyping.value) return;
-  
-  isTyping.value = true; // This makes the button appear
-  abortController.value = new AbortController();
 
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const text = userInput.value;
   userInput.value = '';
-  if (textareaRef.value) textareaRef.value.style.height = 'auto';
   
-  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-  // // 2. Add USER message to UI
-  // messages.value.push({ role: 'user', content: text, time: now });
-  
-  // 3. Prepare for AI and show STOP button
-  isTyping.value = true;
+  // 1. Create the controller right before the fetch
   abortController.value = new AbortController();
+  isTyping.value = true;
 
-  // Add empty AI message placeholder
-  messages.value.push({ role: 'user', content: text });
-  const assistantMsgIndex = messages.value.push({ role: 'assistant', content: '', time: now }) - 1;
+  messages.value.push({ role: 'user', content: text, time: now });
+  const aiIndex = messages.value.push({ role: 'assistant', content: '', time: now }) - 1;
+  await scrollToBottom();
 
   try {
     const token = await auth.currentUser.getIdToken();
     const response = await fetch('http://localhost:3000/api/chat', {
       method: 'POST',
+      // 2. THIS IS THE KEY: Linking the button to the request
       signal: abortController.value.signal,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ message: text, conversationId: currentChatId.value })
@@ -270,45 +264,38 @@ const sendMessage = async () => {
       if (done) break;
 
       const chunk = decoder.decode(value);
-      const lines = chunk.split("\n");
+      const lines = chunk.split('\n');
 
       for (const line of lines) {
-        if (line.startsWith("data: ")) {
+        if (line.startsWith('data: ')) {
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]' || !raw) continue;
+          
           try {
-            const data = JSON.parse(line.slice(6));
-            
-            // GUARD: Only append if data.content is not null/undefined
+            const data = JSON.parse(raw);
             if (data.content) {
-              messages.value[assistantMsgIndex].content += data.content;
+              messages.value[aiIndex].content += data.content;
               scrollToBottom();
             }
-
-            if(data.done && data.conversationId) {
-              if (!currentChatId.value) {
-                currentChatId.value = data.conversationId;
-              }
-            }
-          } catch (e) {
-            // Logic for when the stream sends "done" signal
-            if (line.includes('"done":true')) {
-              console.log("Stream finished successfully");
-            }
-          }
+            if (data.done) currentChatId.value = data.conversationId;
+          } catch (e) {}
         }
       }
     }
   } catch (err) {
     if (err.name === 'AbortError') {
-      messages.value[assistantMsgIndex].content += " [Stopped by user]";
+      console.log("Generation stopped successfully in frontend.");
+      messages.value[aiIndex].content += " [Stopped by user]";
     } else {
-      console.error("Chat Error:", err);
+      console.error("Stream failed:", err);
     }
   } finally {
-    abortController.value = null;
     isTyping.value = false;
+    abortController.value = null; // Clear it for next time
   }
-};
-*/
+};*/
+
+// works but has no stop btn functionality
 
 const sendMessage = async () => {
   if (!userInput.value.trim() || isTyping.value) return;
@@ -364,7 +351,7 @@ const sendMessage = async () => {
   } finally {
     isTyping.value = false;
   }
-};
+  };
 
 const createNewChat = () => {
   messages.value = [];

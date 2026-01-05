@@ -19,90 +19,52 @@ app.get('/test', (req, res) => {
   res.send('Server is reachable!');
 });
 
-
-/*
-// 2. The Chat Route
+/* TODO fix stop genration btn issue 
 app.post('/api/chat', validateFirebaseToken, async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
   let isAborted = false;
+  
+  // This is the most reliable event for "Stop" button or Tab Close
   req.on('close', () => {
-    console.log("Client closed connection. Stopping AI...");
     isAborted = true;
+    console.log("🛑 TERMINAL: STOP SIGNAL DETECTED. Cleaning up...");
   });
 
   try {
     const { message, conversationId } = req.body;
     const { uid } = req.user;
 
-    let convRef;
-    if (conversationId) {
-      // 1. Use existing conversation
-      convRef = db.collection('conversations').doc(conversationId);
-    } else {
-      // 2. Create new conversation
-      convRef = db.collection('conversations').doc();
-      await convRef.set({
-        ownerId: uid,
-        createdAt: new Date(),
-        title: message.length > 30 ? message.substring(0, 30) + '...' : message,
-        lastMessage: message
-      });
+    let convRef = conversationId 
+      ? db.collection('conversations').doc(conversationId) 
+      : db.collection('conversations').doc();
+
+    if (!conversationId) {
+      await convRef.set({ ownerId: uid, createdAt: new Date(), title: message.slice(0, 30) });
     }
 
-    // 3. Save the message to the sub-collection
-    await convRef.collection('messages').add({
-      content: message,
-      role: 'user',
-      ownerId: uid,
-      timestamp: new Date()
-    });
+    await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
 
-    const historySnapshot = await convRef.collection('messages')
-      .orderBy('timestamp', 'desc')
-      .limit(6)
-      .get();
-
-    const history = historySnapshot.docs.map(doc => ({
-      role: doc.data().role,
-      content: doc.data().content
-    })).reverse();
-    // 4. (Optional) Here is where you would call OpenAI/Ollama
-    console.log("Requesting response from LM Studio...");
-    
     const lmResponse = await fetch("http://localhost:1234/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "local-model",
-        stream: true, // Enable streaming
-        messages: [
-          { role: "system", content: "You are LocalMind, a helpful assistant." },
-          ...history,
-          { role: "user", content: message }
-        ],
-      }),
+      body: JSON.stringify({ model: "local-model", stream: true, messages: [{ role: "user", content: message }] }),
     });
 
-  if (!lmResponse.body) {
-      throw new Error("No response body received from LM Studio");
-    }
-
-    const reader = lmResponse.body.getReader(); // This defines 'reader'
+    const reader = lmResponse.body.getReader();
     const decoder = new TextDecoder();
     let fullAiResponse = "";
 
-    console.log("Starting to read stream from LM Studio...");
-
     while (true) {
+      // --- FORCE CHECK: If user clicked stop, res.writableEnded becomes true ---
 
-      if (isAborted) {
-          console.log("STOP TRIGGERED: Connection lost. Wiping local data.");
-          await reader.cancel(); // Kill the stream from LM Studio
-          return; // EXIT IMMEDIATELY. This prevents the code below from ever running.
-        }
+      if (isAborted || res.writableEnded) {
+        console.log("🛑 TERMINAL: Abort confirmed. Cancelling AI reader.");
+        await reader.cancel();
+        return; // EXIT IMMEDIATELY - Do not save to Firestore
+      }
 
       const { done, value } = await reader.read();
       if (done) break;
@@ -111,55 +73,39 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
       const lines = chunk.split("\n");
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed === "data: [DONE]") continue;
-
-        if (trimmed.startsWith("data: ")) {
+        if (line.startsWith("data: ") && line !== "data: [DONE]") {
           try {
-            const data = JSON.parse(trimmed.slice(6));
+            const data = JSON.parse(line.slice(6));
             const content = data.choices[0]?.delta?.content;
             if (content) {
               fullAiResponse += content;
-              // Send token to frontend
-              if (!isAborted) {
-                res.write(`data: ${JSON.stringify({ content: data.content })}\n\n`);
+              // Check again before writing
+              if (!isAborted && !res.writableEnded) {
+                res.write(`data: ${JSON.stringify({ content })}\n\n`);
               }
             }
-          } catch (e) {
-            console.error("Error parsing stream chunk:", e.message);
-          }
+          } catch (e) {}
         }
       }
     }
-    console.log("Local AI replied!");
 
-    // Save AI response to Firestore too
-    if (!isAborted) {
-      await convRef.collection('messages').add({
-        content: fullAiResponse,
-        role: 'assistant',
-        ownerId: uid,
-        timestamp: new Date()
-      });
-    }
-    await convRef.update({ lastMessage: fullAiResponse });
+  if (!isAborted) {
+        await convRef.collection('messages').add({ 
+          content: fullAiResponse, 
+          role: 'assistant', 
+          ownerId: uid, 
+          timestamp: new Date() 
+        });
+        res.write(`data: ${JSON.stringify({ done: true, conversationId: convRef.id })}\n\n`);
+        res.end();
+      }
 
-    res.write(`data: ${JSON.stringify({ done: true, conversationId: convRef.id })}\n\n`);
-    res.end();
-    
   } catch (error) {
-    console.error("Final Server Error:", error);
-    // If headers were already sent, we can't send a 500, we just end the stream
-    if (!res.headersSent) {
-      res.status(500).json({ error: error.message });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: "Stream interrupted" })}\n\n`);
-      res.end();
-    }
+    console.error("Server Error:", error);
+    if (!res.writableEnded) res.end();
   }
 });
 */
-
 
 
 app.post('/api/chat', validateFirebaseToken, async (req, res) => {
@@ -228,6 +174,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
     res.end();
   }
 });
+
 
 // New route for recursive deletion
 app.delete('/api/conversation/:id', validateFirebaseToken, async (req, res) => {
