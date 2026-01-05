@@ -38,35 +38,60 @@
         </div>
       </div>
 
+      <!-- <div class="avatar">
+        {{ msg.role === 'user' ? userEmail[0].toUpperCase() : 'AI' }}
+      </div> -->
+
       <div 
         v-for="(msg, index) in messages" 
         :key="index" 
-        :class="['message-bubble', msg.role]"
+        :class="['message-row', msg.role]"
       >
-        <div class="bubble-content markdown-body" v-html="renderMarkdown(msg.content)"></div>
-      </div>
-      
-      </div>
+        <div class="avatar">
+          {{ msg.role === 'user' ? userEmail[0].toUpperCase() : 'AI' }}
+        </div>
 
-      <div class="input-area-container">
-        <button v-if="isTyping" @click="stopGeneration" class="stop-btn">
-          Stop Generating
-        </button>
-
-        <div class="input-area">
-          <textarea 
-            ref="textareaRef"
-            v-model="userInput" 
-            @input="adjustHeight"
-            @keydown.enter.exact.prevent="sendMessage"
-            placeholder="Type your message here..."
-            rows="1"
-          ></textarea>
-          <button @click="sendMessage" :disabled="!userInput.trim() || isTyping">
-            Send
-          </button>
+        <div class="message-bubble">
+          <div class="bubble-content markdown-body" v-html="renderMarkdown(msg.content)"></div>
+          <span class="message-time">{{ msg.time }}</span>
         </div>
       </div>
+      
+      <!-- <div class="message-bubble" ...>
+        <div class="bubble-content markdown-body" v-html="renderMarkdown(msg.content)"></div>
+        <span class="message-time">{{ msg.time }}</span>
+      </div> -->
+      
+    </div>
+
+    <div class="input-area-container">
+      <button 
+        v-if="isTyping" 
+        type="button"
+        class="stop-btn" 
+        @click="stopGeneration"
+      >
+        <span class="stop-icon">■</span> Stop Generating
+      </button>
+
+      <div class="input-area">
+        <textarea 
+          ref="textareaRef"
+          v-model="userInput" 
+          @input="adjustHeight"
+          @keydown.enter.exact.prevent="sendMessage"
+          placeholder="Message LocalMind..."
+          rows="1"
+        ></textarea>
+        <button 
+          class="send-btn"
+          @click="sendMessage" 
+          :disabled="!userInput.trim() || isTyping"
+        >
+          Send
+        </button>
+      </div>
+    </div>
 
     </main>
   </div>
@@ -82,6 +107,19 @@ import { markedHighlight } from "marked-highlight";
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/github-dark.css';
+
+const props = defineProps(['userEmail', 'userId']);
+const emit = defineEmits(['logout']);
+
+const userInput = ref('');
+const messages = ref([]);
+const history = ref([]);
+const currentChatId = ref(null);
+const isTyping = ref(false);
+const scrollBox = ref(null);
+const textareaRef = ref(null);
+
+
 
 const marked = new Marked(
   markedHighlight({
@@ -123,16 +161,7 @@ onMounted(() => {
   });
 });
 
-const props = defineProps(['userEmail', 'userId']);
-const emit = defineEmits(['logout']);
-
-const userInput = ref('');
-const messages = ref([]);
-const history = ref([]);
-const currentChatId = ref(null);
-const isTyping = ref(false);
-const scrollBox = ref(null);
-const textareaRef = ref(null); // Create a ref for the textarea element
+ // Create a ref for the textarea element
 
 const adjustHeight = () => {
   const el = textareaRef.value;
@@ -193,34 +222,36 @@ const abortController = ref(null);
 
 const stopGeneration = () => {
   if (abortController.value) {
-    abortController.value.abort(); // This kills the fetch request
-    abortController.value = null;
+    abortController.value.abort(); // Signal the fetch to stop
     isTyping.value = false;
+    abortController.value = null;
+    console.log("Generation stopped.");
   }
 };
 
+/*
 const sendMessage = async () => {
-  if (!userInput.value.trim()) return;
-
+  if (!userInput.value.trim() || isTyping.value) return;
+  
+  isTyping.value = true; // This makes the button appear
   abortController.value = new AbortController();
 
   const text = userInput.value;
   userInput.value = '';
-
-  if (textareaRef.value) {
-    textareaRef.value.style.height = 'auto';
-  }
+  if (textareaRef.value) textareaRef.value.style.height = 'auto';
   
-  // 1. Add User message to UI
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  // // 2. Add USER message to UI
+  // messages.value.push({ role: 'user', content: text, time: now });
+  
+  // 3. Prepare for AI and show STOP button
+  isTyping.value = true;
+  abortController.value = new AbortController();
+
+  // Add empty AI message placeholder
   messages.value.push({ role: 'user', content: text });
-  await scrollToBottom();
-
-  // 2. Trigger "Thinking" state
-  isTyping.ref = true;
-
-  // TODO: Here is where we will call your Express Backend
-  // For now, let's simulate a delay
-  const assistantMsgIndex = messages.value.push({ role: 'assistant', content: '' }) - 1;
+  const assistantMsgIndex = messages.value.push({ role: 'assistant', content: '', time: now }) - 1;
 
   try {
     const token = await auth.currentUser.getIdToken();
@@ -251,6 +282,12 @@ const sendMessage = async () => {
               messages.value[assistantMsgIndex].content += data.content;
               scrollToBottom();
             }
+
+            if(data.done && data.conversationId) {
+              if (!currentChatId.value) {
+                currentChatId.value = data.conversationId;
+              }
+            }
           } catch (e) {
             // Logic for when the stream sends "done" signal
             if (line.includes('"done":true')) {
@@ -262,7 +299,7 @@ const sendMessage = async () => {
     }
   } catch (err) {
     if (err.name === 'AbortError') {
-      console.log("Generation stopped by user");
+      messages.value[assistantMsgIndex].content += " [Stopped by user]";
     } else {
       console.error("Chat Error:", err);
     }
@@ -271,6 +308,64 @@ const sendMessage = async () => {
     isTyping.value = false;
   }
 };
+*/
+
+const sendMessage = async () => {
+  if (!userInput.value.trim() || isTyping.value) return;
+
+  const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  console.log("Setting time to:", now);
+  const text = userInput.value;
+  userInput.value = '';
+  isTyping.value = true;
+
+  // Push User Message and Placeholder for AI
+  messages.value.push({ role: 'user', content: text, time: now });
+  const aiIndex = messages.value.push({ role: 'assistant', content: '', time: now }) - 1;
+  await scrollToBottom();
+
+
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const response = await fetch('http://localhost:3000/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ message: text, conversationId: currentChatId.value })
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const raw = line.slice(6).trim();
+          if (raw === '[DONE]') continue;
+          
+          try {
+            const data = JSON.parse(raw);
+            if (data.content) {
+              // Update the bubble directly
+              messages.value[aiIndex].content += data.content;
+            }
+            if (data.done) currentChatId.value = data.conversationId;
+          } catch (e) {}
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Stream failed:", err);
+  } finally {
+    isTyping.value = false;
+  }
+};
+
 const createNewChat = () => {
   messages.value = [];
   currentChatId.value = null;
@@ -286,10 +381,29 @@ const selectChat = async (id) => {
     const fetchedMessages = await chatService.getChatMessages(id);
     
     // 2. Map them to the format our UI expects (role and content)
-    messages.value = fetchedMessages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
+    // messages.value = fetchedMessages.map(msg => ({
+    //   role: msg.role,
+    //   content: msg.content
+    // }));
+
+    messages.value = fetchedMessages.map(doc => {
+    // Convert Firestore timestamp to "10:30 AM" format
+      let displayTime = '';
+      if (doc.timestamp) {
+        // If it's a Firestore timestamp, it has a .toDate() method
+        const date = doc.timestamp.toDate ? doc.timestamp.toDate() : new Date(doc.timestamp);
+        displayTime = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      else {
+        displayTime = 'Unknown Time';
+      }
+
+      return {
+        role: doc.role,
+        content: doc.content,
+        time: displayTime
+      };
+    });
 
     await scrollToBottom();
   } catch (err) {
@@ -322,7 +436,21 @@ if (!confirm("Delete this conversation?")) return;
   }
 };
 
+const isRecording = ref(false);
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+const startSpeech = () => {
+  if (!Recognition) return alert("Browser not supported");
+  
+  const rec = new Recognition();
+  rec.onstart = () => isRecording.value = true;
+  rec.onend = () => isRecording.value = false;
+  rec.onresult = (event) => {
+    userInput.value += event.results[0][0].transcript;
+    adjustHeight();
+  };
+  rec.start();
+};
 
 </script>
 
@@ -397,15 +525,90 @@ if (!confirm("Delete this conversation?")) return;
   display: flex; flex-direction: column; gap: 20px;
 }
 
-.message-bubble { display: flex; max-width: 80%; }
-.message-bubble.user { align-self: flex-end; }
-.message-bubble.assistant { align-self: flex-start; }
+.message-bubble {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+  max-width: 80%; /* Ensure bubbles don't take full width */
+}
+
+.message-time {
+  display: block;      /* Fixes the 0x0 size issue */
+  font-size: 11px;
+  color: #888;         /* Subtle grey */
+  margin-top: 4px;
+  min-width: 50px;     /* Ensures it has a footprint */
+  white-space: nowrap; /* Prevents the time from wrapping */
+}
+
+.assistant .message-time {
+  align-self: flex-start;
+}
+.message-bubble.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.message-bubble.assistant {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.message-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  align-items: flex-start;
+}
+
+/* User row goes from right to left */
+.message-row.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  width: 35px;
+  height: 35px;
+  border-radius: 6px;
+  background-color: #555;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 0.8rem;
+  flex-shrink: 0; /* Prevents avatar from getting squished */
+}
+
+.user .avatar {
+  background-color: #007bff; /* Blue for user */
+}
+
+.assistant .avatar {
+  background-color: #10a37f; /* Green for AI */
+}
+
+.message-bubble {
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure user text aligns right, AI text aligns left */
+.user .message-bubble { align-items: flex-end; }
+.assistant .message-bubble { align-items: flex-start; }
 
 .bubble-content { 
   padding: 12px 16px; border-radius: 15px; font-size: 1rem; line-height: 1.5;
 }
 .user .bubble-content { background: #007bff; color: white; border-bottom-right-radius: 2px; }
 .assistant .bubble-content { background: #e9e9eb; color: #333; border-bottom-left-radius: 2px; }
+
+.input-area-container {
+  position: relative;
+  width: 100%;
+  padding-top: 10px; /* Space for the button */
+}
 
 .input-area { 
   padding: 20px 15%; 
@@ -593,16 +796,29 @@ textarea {
 }
 
 .stop-btn {
+  /* Use fixed if absolute isn't working, but absolute is better */
   position: absolute;
-  top: -40px;
+  top: -45px; 
   left: 50%;
   transform: translateX(-50%);
-  background: var(--bg-main);
+  
+  z-index: 9999; /* Ensure it's above everything */
+  background-color: var(--bg-sidebar); /* Darker background so it stands out */
+  color: white;
   border: 1px solid var(--border-color);
-  padding: 5px 15px;
-  border-radius: 5px;
+  padding: 10px 20px;
+  border-radius: 25px;
+  
+  display: flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
-  z-index: 10;
+  font-weight: 500;
+}
+
+.stop-icon {
+  color: #ff4d4d; /* Red square */
+  font-size: 14px;
 }
 
 :deep(.code-container) {
