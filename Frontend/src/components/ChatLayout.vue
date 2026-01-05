@@ -48,19 +48,26 @@
       
       </div>
 
-      <div class="input-area">
-        <textarea 
-          ref="textareaRef"
-          v-model="userInput" 
-          @input="adjustHeight"
-          @keydown.enter.exact.prevent="sendMessage"
-          placeholder="Type your message here..."
-          rows="1"
-        ></textarea>
-        <button @click="sendMessage" :disabled="!userInput.trim() || isTyping">
-          Send
+      <div class="input-area-container">
+        <button v-if="isTyping" @click="stopGeneration" class="stop-btn">
+          Stop Generating
         </button>
+
+        <div class="input-area">
+          <textarea 
+            ref="textareaRef"
+            v-model="userInput" 
+            @input="adjustHeight"
+            @keydown.enter.exact.prevent="sendMessage"
+            placeholder="Type your message here..."
+            rows="1"
+          ></textarea>
+          <button @click="sendMessage" :disabled="!userInput.trim() || isTyping">
+            Send
+          </button>
+        </div>
       </div>
+
     </main>
   </div>
 </template>
@@ -92,9 +99,29 @@ marked.setOptions({
 });
 
 const renderMarkdown = (rawText) => {
-  const html = marked.parse(rawText || '');
-  return DOMPurify.sanitize(html);
+  const rawHtml = marked.parse(rawText || '');
+  
+  // This Regex looks for <pre> tags and injects a Copy button
+  const withButtons = rawHtml.replace(
+    /<pre><code/g, 
+    '<div class="code-container"><button class="copy-code-btn">Copy</button><pre><code'
+  ).replace(/<\/code><\/pre>/g, '</code></pre></div>');
+
+  return DOMPurify.sanitize(withButtons);
 };
+
+// Handle clicks globally for injected buttons
+onMounted(() => {
+  document.addEventListener('click', (e) => {
+    if (e.target.classList.contains('copy-code-btn')) {
+      const code = e.target.parentElement.querySelector('code').innerText;
+      navigator.clipboard.writeText(code);
+      
+      e.target.innerText = "Copied!";
+      setTimeout(() => e.target.innerText = "Copy", 2000);
+    }
+  });
+});
 
 const props = defineProps(['userEmail', 'userId']);
 const emit = defineEmits(['logout']);
@@ -162,8 +189,20 @@ const scrollToBottom = async () => {
   }
 };
 
+const abortController = ref(null);
+
+const stopGeneration = () => {
+  if (abortController.value) {
+    abortController.value.abort(); // This kills the fetch request
+    abortController.value = null;
+    isTyping.value = false;
+  }
+};
+
 const sendMessage = async () => {
   if (!userInput.value.trim()) return;
+
+  abortController.value = new AbortController();
 
   const text = userInput.value;
   userInput.value = '';
@@ -187,6 +226,7 @@ const sendMessage = async () => {
     const token = await auth.currentUser.getIdToken();
     const response = await fetch('http://localhost:3000/api/chat', {
       method: 'POST',
+      signal: abortController.value.signal,
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ message: text, conversationId: currentChatId.value })
     });
@@ -221,12 +261,13 @@ const sendMessage = async () => {
       }
     }
   } catch (err) {
-    console.error("Stream error:", err);
-    // Only show error if we haven't received any content yet
-    if (messages.value[assistantMsgIndex].content === '') {
-      messages.value[assistantMsgIndex].content = "Error connecting to AI.";
+    if (err.name === 'AbortError') {
+      console.log("Generation stopped by user");
+    } else {
+      console.error("Chat Error:", err);
     }
   } finally {
+    abortController.value = null;
     isTyping.value = false;
   }
 };
@@ -549,5 +590,41 @@ textarea {
 
 .theme-switch:hover {
   background: rgba(255,255,255,0.2);
+}
+
+.stop-btn {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-main);
+  border: 1px solid var(--border-color);
+  padding: 5px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  z-index: 10;
+}
+
+:deep(.code-container) {
+  position: relative;
+}
+
+:deep(.copy-code-btn) {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #ccc;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  cursor: pointer;
+  z-index: 5;
+}
+
+:deep(.copy-code-btn:hover) {
+  background: rgba(255,255,255,0.2);
+  color: white;
 }
 </style>
