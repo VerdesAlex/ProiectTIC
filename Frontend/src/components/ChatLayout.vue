@@ -68,28 +68,30 @@ import { ref, onMounted, nextTick } from 'vue';
 import { chatService } from '../firebase/chatService';
 import { auth } from '../firebase/config';
 
-import { marked } from 'marked';
+import { Marked } from "marked";
+import { markedHighlight } from "marked-highlight";
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/github-dark.css';
 
-marked.use({
-  highlight(code, lang) {
-    if (lang && hljs.getLanguage(lang)) {
-      return hljs.highlight(code, { language: lang }).value;
+const marked = new Marked(
+  markedHighlight({
+    langPrefix: 'hljs language-',
+    highlight(code, lang) {
+      const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+      return hljs.highlight(code, { language }).value;
     }
-    return hljs.highlightAuto(code).value;
-  },
+  })
+);
+
+marked.setOptions({
   breaks: true,
   gfm: true
 });
 
-// 2. Helper function to sanitize and render
 const renderMarkdown = (rawText) => {
-  // marked.parse() converts markdown to HTML string
-  // DOMPurify.sanitize() cleans it of any malicious scripts
-  const rawHtml = marked.parse(rawText || '');
-  return DOMPurify.sanitize(rawHtml);
+  const html = marked.parse(rawText || '');
+  return DOMPurify.sanitize(html);
 };
 
 const props = defineProps(['userEmail', 'userId']);
