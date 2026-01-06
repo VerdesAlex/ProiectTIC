@@ -39,7 +39,7 @@ async function seedData() {
       let conversationDate = faker.date.recent({ days: 7 });
 
       const conversationData = {
-        userId: USER_UID,
+        ownerId: USER_UID,
         title: faker.lorem.sentence({ min: 2, max: 4 }),
         createdAt: admin.firestore.Timestamp.fromDate(conversationDate),
         updatedAt: admin.firestore.Timestamp.fromDate(conversationDate),
