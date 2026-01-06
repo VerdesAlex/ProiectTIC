@@ -66,8 +66,8 @@
 <script setup>
 import { ref, onMounted, nextTick, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router'; // <--- IMPORT CRITIC
-import { chatService } from '../firebase/chatService';
-import { authService } from '../firebase/authService';
+import { chatService } from '../../firebase/chatService';
+import { authService } from '../../firebase/authService';
 import { Marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import hljs from 'highlight.js';
