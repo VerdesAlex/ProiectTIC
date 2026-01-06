@@ -6,7 +6,6 @@ const app = express();
 const cors = require('cors');
 const morgan = require('morgan');
 const API_URL = process.env.LOCAL_AI_API_URL;
-const PROTOCOL = process.env.PROTOCOL;
 const ADDRESS = process.env.ADDRESS;
 
 // Middleware
@@ -51,7 +50,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
 
     await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
 
-    const lmResponse = await fetch(`${PROTOCOL}://${ADDRESS}:${API_URL}`, {
+    const lmResponse = await fetch(`${ADDRESS}:${API_URL}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: "local-model", stream: true, messages: [{ role: "user", content: message }] }),
@@ -134,7 +133,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
     await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
 
     // Call LM Studio
-    const lmResponse = await fetch(`${PROTOCOL}://${ADDRESS}:${API_URL}`, {
+    const lmResponse = await fetch(`${ADDRESS}:${API_URL}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: "local-model", stream: true, messages: [{ role: "user", content: message }] }),
@@ -243,5 +242,5 @@ app.delete('/api/conversations/:id', validateFirebaseToken, async (req, res) => 
 
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server heart beating on ${PROTOCOL}://${ADDRESS}:${PORT}`);
+  console.log(`🚀 Server heart beating on ${ADDRESS}:${PORT}`);
 });
