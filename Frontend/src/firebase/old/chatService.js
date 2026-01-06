@@ -1,4 +1,4 @@
-import { db } from './config';
+import { db } from '../config';
 import { collection, query, where, orderBy, getDocs, deleteDoc, doc} from "firebase/firestore";
 const API_URL = import.meta.env.VITE_API_URL;
 // Frontend/src/firebase/chatService.js
