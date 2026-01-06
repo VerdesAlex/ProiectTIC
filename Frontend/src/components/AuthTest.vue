@@ -30,6 +30,7 @@ const email = ref('');
 const password = ref('');
 const user = ref(null);
 const error = ref('');
+const API_URL = import.meta.env.VITE_API_URL;
 
 const testBackendChat = async () => {
   try {
@@ -44,7 +45,7 @@ const testBackendChat = async () => {
     
     console.log("Sending token to backend...");
 
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch(`${API_URL}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

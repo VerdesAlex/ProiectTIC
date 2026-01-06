@@ -108,6 +108,7 @@ import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/github-dark.css';
 
+const API_URL = import.meta.env.VITE_API_URL;
 const props = defineProps(['userEmail', 'userId']);
 const emit = defineEmits(['logout']);
 
@@ -200,7 +201,8 @@ watch(userInput, () => {
 // Placeholder for fetching history (We will connect this to Firestore next)
 const fetchHistory = async () => {
   try {
-    history.value = await chatService.getUserConversations(props.userId);
+    const token = await auth.currentUser.getIdToken(); // Obținem token-ul JWT, nu UID-ul
+    history.value = await chatService.getUserConversations(token);
   } catch (err) {
     console.error("Failed to fetch history:", err);
   }
@@ -248,7 +250,7 @@ const sendMessage = async () => {
 
   try {
     const token = await auth.currentUser.getIdToken();
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch('${API_URL}/api/chat', {
       method: 'POST',
       // 2. THIS IS THE KEY: Linking the button to the request
       signal: abortController.value.signal,
@@ -301,20 +303,20 @@ const sendMessage = async () => {
   if (!userInput.value.trim() || isTyping.value) return;
 
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  console.log("Setting time to:", now);
   const text = userInput.value;
   userInput.value = '';
   isTyping.value = true;
 
-  // Push User Message and Placeholder for AI
+  // Reține dacă acesta este un chat nou înainte de a trimite mesajul
+  const isNewChat = !currentChatId.value;
+
   messages.value.push({ role: 'user', content: text, time: now });
   const aiIndex = messages.value.push({ role: 'assistant', content: '', time: now }) - 1;
   await scrollToBottom();
 
-
   try {
     const token = await auth.currentUser.getIdToken();
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch(`${API_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ message: text, conversationId: currentChatId.value })
@@ -338,10 +340,16 @@ const sendMessage = async () => {
           try {
             const data = JSON.parse(raw);
             if (data.content) {
-              // Update the bubble directly
               messages.value[aiIndex].content += data.content;
             }
-            if (data.done) currentChatId.value = data.conversationId;
+            if (data.done) {
+              currentChatId.value = data.conversationId;
+              
+              // DACĂ ESTE UN CHAT NOU, actualizăm sidebar-ul acum
+              if (isNewChat) {
+                await fetchHistory();
+              }
+            }
           } catch (e) {}
         }
       }
@@ -351,7 +359,7 @@ const sendMessage = async () => {
   } finally {
     isTyping.value = false;
   }
-  };
+};
 
 const createNewChat = () => {
   messages.value = [];
@@ -360,36 +368,21 @@ const createNewChat = () => {
 
 const selectChat = async (id) => {
   currentChatId.value = id;
-  messages.value = []; // Clear current screen while loading
+  messages.value = [];
   isTyping.value = true;
   
   try {
-    // 1. Fetch messages from Firestore using our service
-    const fetchedMessages = await chatService.getChatMessages(id);
+    const token = await auth.currentUser.getIdToken();
+    const fetchedMessages = await chatService.getChatMessages(id, token);
     
-    // 2. Map them to the format our UI expects (role and content)
-    // messages.value = fetchedMessages.map(msg => ({
-    //   role: msg.role,
-    //   content: msg.content
-    // }));
-
     messages.value = fetchedMessages.map(doc => {
-    // Convert Firestore timestamp to "10:30 AM" format
       let displayTime = '';
       if (doc.timestamp) {
-        // If it's a Firestore timestamp, it has a .toDate() method
-        const date = doc.timestamp.toDate ? doc.timestamp.toDate() : new Date(doc.timestamp);
+        // Dacă e de la backend, timestamp e obiect cu seconds sau string
+        const date = doc.timestamp._seconds ? new Date(doc.timestamp._seconds * 1000) : new Date(doc.timestamp);
         displayTime = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       }
-      else {
-        displayTime = 'Unknown Time';
-      }
-
-      return {
-        role: doc.role,
-        content: doc.content,
-        time: displayTime
-      };
+      return { role: doc.role, content: doc.content, time: displayTime };
     });
 
     await scrollToBottom();
@@ -426,6 +419,8 @@ if (!confirm("Delete this conversation?")) return;
 const isRecording = ref(false);
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+//one day, maybe
+/*
 const startSpeech = () => {
   if (!Recognition) return alert("Browser not supported");
   
@@ -438,6 +433,8 @@ const startSpeech = () => {
   };
   rec.start();
 };
+
+*/
 
 </script>
 

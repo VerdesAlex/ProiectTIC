@@ -1,9 +1,12 @@
+const dotenv = require('dotenv').config();
 const express = require('express');
 const validateFirebaseToken = require('./middleware/authMiddleware');
 const { db } = require('./firebase/config'); // Import the Firestore instance
 const app = express();
 const cors = require('cors');
 const morgan = require('morgan');
+const API_URL = process.env.LOCAL_AI_API_URL;
+const ADDRESS = process.env.ADDRESS;
 
 // Middleware
 app.use(cors());
@@ -47,7 +50,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
 
     await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
 
-    const lmResponse = await fetch("http://localhost:1234/v1/chat/completions", {
+    const lmResponse = await fetch(`${ADDRESS}:${API_URL}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: "local-model", stream: true, messages: [{ role: "user", content: message }] }),
@@ -130,7 +133,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
     await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
 
     // Call LM Studio
-    const lmResponse = await fetch("http://localhost:1234/v1/chat/completions", {
+    const lmResponse = await fetch(`${ADDRESS}:${API_URL}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: "local-model", stream: true, messages: [{ role: "user", content: message }] }),
@@ -185,21 +188,17 @@ app.get('/api/conversations', validateFirebaseToken, async (req, res) => {
     const { uid } = req.user;
     const snapshot = await db.collection('conversations')
       .where('ownerId', '==', uid)
-      .orderBy('createdAt', 'desc') // Notă: Necesită index în Firestore
+      .orderBy('createdAt', 'desc')
       .get();
 
-    const conversations = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
+    const conversations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(conversations);
   } catch (error) {
-    console.error("Fetch Conversations Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// 2. Obține mesajele unei conversații specifice (cu verificare de proprietar)
+// 2. Obține mesajele (verifică proprietarul)
 app.get('/api/conversations/:id/messages', validateFirebaseToken, async (req, res) => {
   try {
     const { id } = req.params;
@@ -212,14 +211,8 @@ app.get('/api/conversations/:id/messages', validateFirebaseToken, async (req, re
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    const messagesSnapshot = await convRef.collection('messages')
-      .orderBy('timestamp', 'asc')
-      .get();
-
-    const messages = messagesSnapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    }));
+    const messagesSnapshot = await convRef.collection('messages').orderBy('timestamp', 'asc').get();
+    const messages = messagesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json(messages);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -239,7 +232,7 @@ app.delete('/api/conversations/:id', validateFirebaseToken, async (req, res) => 
     }
 
     await db.recursiveDelete(convRef);
-    res.json({ success: true, message: "Conversation deleted." });
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -249,5 +242,5 @@ app.delete('/api/conversations/:id', validateFirebaseToken, async (req, res) => 
 
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server heart beating on http://localhost:${PORT}`);
+  console.log(`🚀 Server heart beating on ${ADDRESS}:${PORT}`);
 });

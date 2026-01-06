@@ -14,7 +14,6 @@
 </template>
 
 <script>
-// We need to import the components we created in Step 5
 import Sidebar from '@/components/Sidebar.vue'
 import ChatWindow from '@/components/ChatWindow.vue'
 import ChatInput from '@/components/ChatInput.vue'
@@ -22,6 +21,7 @@ import { authService } from '@/firebase/authService'
 import { chatService } from '@/firebase/chatService'
 
 export default {
+  name: 'ChatView',
   components: { Sidebar, ChatWindow, ChatInput },
   data() {
     return {
@@ -29,55 +29,30 @@ export default {
       messages: []
     }
   },
-  watch: {
-    // Urmărim schimbarea ID-ului în URL pentru a încărca mesajele noi
-    '$route.params.id': function(newId) {
-      if (newId) {
-        this.loadMessages(newId);
-      } else {
-        this.messages = [];
-      }
-    }
-  },
   methods: {
-  async loadConversations() {
-      try {
-        const token = await authService.getToken(); // Obține token-ul real
-        if (!token) return this.$router.push('/login');
-        
-        this.conversations = await chatService.getUserConversations(token);
-      } catch (error) {
-        console.error("Eroare la încărcarea conversațiilor:", error);
-      }
-  },
-  async loadMessages(convId) {
-      try {
-        const token = await authService.getToken();
-        this.messages = await chatService.getChatMessages(convId, token);
-      } catch (error) {
-        console.error("Eroare la încărcarea mesajelor:", error);
+    async initChat() {
+      const token = await authService.getToken(); // Pasul CRITIC
+      if (!token) return this.$router.push('/login');
+      
+      this.conversations = await chatService.getUserConversations(token);
+      
+      if (this.$route.params.id) {
+        this.messages = await chatService.getChatMessages(this.$route.params.id, token);
       }
     },
-
     async handleDelete(id) {
-      try {
-        const token = await authService.getToken();
-        await chatService.deleteConversation(id, token);
-        await this.loadConversations();
-        if (this.$route.params.id === id) this.$router.push('/chat');
-      } catch (error) {
-        console.error("Eroare la ștergere:", error);
-      }
+      const token = await authService.getToken();
+      await chatService.deleteConversation(id, token);
+      await this.initChat();
+      if (this.$route.params.id === id) this.$router.push('/chat');
     }
   },
   mounted() {
-    this.loadConversations();
-    if (this.$route.params.id) this.loadMessages(this.$route.params.id);
+    this.initChat();
   },
   watch: {
-    '$route.params.id': function(newId) {
-      if (newId) this.loadMessages(newId);
-      else this.messages = [];
+    '$route.params.id': function() {
+      this.initChat();
     }
   }
 }

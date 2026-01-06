@@ -21,7 +21,7 @@ export const authService = {
       const unsubscribe = onAuthStateChanged(auth, async (user) => {
         unsubscribe();
         if (user) {
-          const token = await user.getIdToken();
+          const token = await user.getIdToken(); // Aceasta este valoarea de care are nevoie Backend-ul
           resolve(token);
         } else {
           resolve(null);
