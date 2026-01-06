@@ -177,7 +177,30 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
 
 
 // New route for recursive deletion
-app.delete('/api/conversation/:id', validateFirebaseToken, async (req, res) => {
+// ... (codul existent: importuri, middleware, /test, /api/chat)
+
+// 1. Obține toate conversațiile utilizatorului curent
+app.get('/api/conversations', validateFirebaseToken, async (req, res) => {
+  try {
+    const { uid } = req.user;
+    const snapshot = await db.collection('conversations')
+      .where('ownerId', '==', uid)
+      .orderBy('createdAt', 'desc') // Notă: Necesită index în Firestore
+      .get();
+
+    const conversations = snapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
+    res.json(conversations);
+  } catch (error) {
+    console.error("Fetch Conversations Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. Obține mesajele unei conversații specifice (cu verificare de proprietar)
+app.get('/api/conversations/:id/messages', validateFirebaseToken, async (req, res) => {
   try {
     const { id } = req.params;
     const { uid } = req.user;
@@ -185,20 +208,44 @@ app.delete('/api/conversation/:id', validateFirebaseToken, async (req, res) => {
     const convRef = db.collection('conversations').doc(id);
     const doc = await convRef.get();
 
-    // Security: Only allow deletion if the user owns the chat
     if (!doc.exists || doc.data().ownerId !== uid) {
       return res.status(403).json({ error: "Unauthorized" });
     }
 
-    // This command recursively deletes the document and all sub-collections
-    await db.recursiveDelete(convRef);
+    const messagesSnapshot = await convRef.collection('messages')
+      .orderBy('timestamp', 'asc')
+      .get();
 
-    res.json({ success: true, message: "Conversation and all messages deleted." });
+    const messages = messagesSnapshot.docs.map(doc => ({ 
+      id: doc.id, 
+      ...doc.data() 
+    }));
+    res.json(messages);
   } catch (error) {
-    console.error("Delete Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
+
+app.delete('/api/conversations/:id', validateFirebaseToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { uid } = req.user;
+
+    const convRef = db.collection('conversations').doc(id);
+    const doc = await convRef.get();
+
+    if (!doc.exists || doc.data().ownerId !== uid) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    await db.recursiveDelete(convRef);
+    res.json({ success: true, message: "Conversation deleted." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ... (restul codului: app.listen)
 
 const PORT = 3000;
 app.listen(PORT, () => {

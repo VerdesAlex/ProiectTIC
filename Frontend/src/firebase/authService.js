@@ -16,6 +16,19 @@ export const authService = {
       throw error.message;
     }
   },
+  async getToken() {
+    return new Promise((resolve) => {
+      const unsubscribe = onAuthStateChanged(auth, async (user) => {
+        unsubscribe();
+        if (user) {
+          const token = await user.getIdToken();
+          resolve(token);
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  },
 
   // Login existing user
   async login(email, password) {
