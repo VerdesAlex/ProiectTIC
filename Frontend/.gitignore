@@ -36,3 +36,5 @@ coverage
 __screenshots__/
 
 .env
+Frontend\src\firebase\old
+Frontend\src\components\_old
