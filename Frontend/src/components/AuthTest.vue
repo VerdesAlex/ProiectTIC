@@ -17,8 +17,7 @@
     <p v-if="error" style="color: red;">{{ error }}</p>
   </div>
   
-    <button @click="testBackendChat">Test Backend Write</button>
-</template>
+  </template>
 
 
 <script setup>
@@ -32,41 +31,6 @@ const user = ref(null);
 const error = ref('');
 const API_URL = import.meta.env.VITE_API_URL;
 
-const testBackendChat = async () => {
-  try {
-    // 1. Check if our local 'user' ref exists first
-    if (!user.value) {
-      alert("No user found. Please log in again.");
-      return;
-    }
-
-    // 2. Get the token directly from the user object in our state
-    const token = await user.value.getIdToken();
-    
-    console.log("Sending token to backend...");
-
-    const response = await fetch(`${API_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ message: "Hello from the frontend!" })
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Server error");
-    }
-
-    const data = await response.json();
-    console.log("Server response:", data);
-    alert("Chat saved successfully!");
-  } catch (err) {
-    console.error("Test failed:", err);
-    alert("Error: " + err.message);
-  }
-};
 
 // Check if user is already logged in when component loads
 onMounted(() => {
