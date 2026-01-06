@@ -55,9 +55,15 @@ const mutations = {
 
 const actions = {
   // 1. Obține lista de conversații
-  async fetchSessions({ commit }) {
+  async fetchSessions({ commit }, searchQuery = '') { // [NOU] Parametru optional
     try {
-      const response = await apiClient.get('/api/conversations');
+      // Trimitem parametrul 'search' către backend doar dacă există
+      const params = {};
+      if (searchQuery) {
+        params.search = searchQuery;
+      }
+
+      const response = await apiClient.get('/api/conversations', { params });
       commit('SET_SESSIONS', response.data);
     } catch (error) {
       console.error("Error fetching sessions:", error);

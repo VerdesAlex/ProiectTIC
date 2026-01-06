@@ -186,12 +186,25 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
 app.get('/api/conversations', validateFirebaseToken, async (req, res) => {
   try {
     const { uid } = req.user;
+    const { search } = req.query; // [NOU] Extragem parametrul de căutare
+
+    // Obținem toate conversațiile userului (filtrare de bază pe DB)
     const snapshot = await db.collection('conversations')
       .where('ownerId', '==', uid)
       .orderBy('createdAt', 'desc')
       .get();
 
-    const conversations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let conversations = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // [NOU] Filtrare complexă în memorie (Javascript Filter)
+    // Firestore nu suportă nativ "LIKE %text%" ușor, așa că filtrăm rezultatele aici
+    if (search) {
+      const searchTerm = search.toLowerCase();
+      conversations = conversations.filter(conv => 
+        (conv.title && conv.title.toLowerCase().includes(searchTerm))
+      );
+    }
+
     res.json(conversations);
   } catch (error) {
     res.status(500).json({ error: error.message });
