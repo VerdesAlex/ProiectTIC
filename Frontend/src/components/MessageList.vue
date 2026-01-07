@@ -36,7 +36,20 @@
           </div>
         </div>
 
-        <span v-if="msg.time" class="message-time">{{ msg.time }}</span>
+        <div class="message-footer">
+          <button 
+            v-if="msg.role !== 'user'" 
+            class="msg-action-btn" 
+            @click="copyMessage(parseMessage(msg.content).text, index)"
+            title="Copy full message"
+          >
+            <span v-if="copiedIndex === index">✅ Copied</span>
+            <span v-else>📋 Copy</span>
+          </button>
+
+          <span v-if="msg.time" class="message-time">{{ msg.time }}</span>
+        </div>
+
       </div>
     </div>
   </div>
@@ -57,8 +70,24 @@ const props = defineProps({
 
 const scrollBox = ref(null);
 const expandedFiles = ref({});
+const copiedIndex = ref(-1); // Stare pentru feedback vizual la copiere
 
-// --- PARSING LOGIC (Fișiere atașate) ---
+// --- LOGICA COPY MESSAGE (NOU) ---
+const copyMessage = async (text, index) => {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedIndex.value = index;
+    // Resetăm iconița după 2 secunde
+    setTimeout(() => {
+      copiedIndex.value = -1;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy message:", err);
+  }
+};
+
+// --- PARSING LOGIC ---
 const parseMessage = (content) => {
   if (!content) return { text: '', file: null };
   const markerStart = "\n\n--- Content of file: ";
@@ -88,7 +117,6 @@ const toggleFile = (index) => expandedFiles.value[index] = !expandedFiles.value[
 const isExpanded = (index) => !!expandedFiles.value[index];
 
 // --- MARKDOWN & CODE BUTTONS LOGIC ---
-
 const marked = new Marked(
   markedHighlight({
     langPrefix: 'hljs language-',
@@ -99,23 +127,14 @@ const marked = new Marked(
   })
 );
 
-// 1. Funcția de randare care injectează butoanele
 const renderMarkdown = (content) => {
   if (!content) return '';
-  
-  // Parsăm markdown-ul în HTML
   const rawHtml = marked.parse(content);
-  
-  // Sanitizăm HTML-ul înainte de a injecta butoanele noastre custom
-  // (pentru a nu fi șterse de DOMPurify)
   const sanitized = DOMPurify.sanitize(rawHtml);
 
-  // Regex pentru a găsi blocurile de cod <pre><code class="...">...</code></pre>
-  // Capturăm clasa (pentru limbaj) și conținutul
   return sanitized.replace(
     /<pre><code class="([^"]*)">([\s\S]*?)<\/code><\/pre>/g,
     (match, classNames, codeContent) => {
-      // Extragem numele limbajului (ex: "hljs language-javascript" -> "javascript")
       const langMatch = classNames.match(/language-([a-zA-Z0-9_-]+)/);
       const language = langMatch ? langMatch[1] : 'text';
 
@@ -124,12 +143,8 @@ const renderMarkdown = (content) => {
           <div class="code-header">
             <span class="lang-label">${language}</span>
             <div class="code-actions">
-              <button class="action-btn download-btn" data-lang="${language}" title="Download">
-                ⬇
-              </button>
-              <button class="action-btn copy-btn" title="Copy">
-                📋
-              </button>
+              <button class="action-btn download-btn" data-lang="${language}" title="Download">⬇</button>
+              <button class="action-btn copy-btn" title="Copy">📋</button>
             </div>
           </div>
           <pre><code class="${classNames}">${codeContent}</code></pre>
@@ -139,61 +154,34 @@ const renderMarkdown = (content) => {
   );
 };
 
-// 2. Gestionarea click-urilor (Event Delegation)
-// Deoarece v-html nu suportă directive Vue (@click), folosim un listener pe container
 const handleCodeClick = async (event) => {
   const target = event.target;
-
-  // --- LOGICA COPY ---
   if (target.closest('.copy-btn')) {
     const btn = target.closest('.copy-btn');
     const wrapper = btn.closest('.code-wrapper');
     const code = wrapper.querySelector('code').innerText;
-
     try {
       await navigator.clipboard.writeText(code);
       const originalText = btn.innerText;
-      btn.innerText = '✅'; // Feedback vizual
+      btn.innerText = '✅';
       setTimeout(() => btn.innerText = originalText, 2000);
-    } catch (err) {
-      console.error('Copy failed', err);
-    }
+    } catch (err) { console.error('Copy failed', err); }
   }
-
-  // --- LOGICA DOWNLOAD ---
   if (target.closest('.download-btn')) {
     const btn = target.closest('.download-btn');
     const wrapper = btn.closest('.code-wrapper');
     const code = wrapper.querySelector('code').innerText;
     const lang = btn.getAttribute('data-lang') || 'txt';
-
     downloadCode(code, lang);
   }
 };
 
-// 3. Funcția helper pentru download
 const downloadCode = (code, lang) => {
-  // Mapare simplă pentru extensii comune
-  const extensions = {
-    javascript: 'js', js: 'js',
-    python: 'py', py: 'py',
-    html: 'html',
-    css: 'css',
-    json: 'json',
-    vue: 'vue',
-    java: 'java',
-    c: 'c', cpp: 'cpp',
-    sql: 'sql',
-    bash: 'sh', shell: 'sh',
-    text: 'txt', plaintext: 'txt'
-  };
-
+  const extensions = { javascript: 'js', js: 'js', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', vue: 'vue', java: 'java', c: 'c', cpp: 'cpp', sql: 'sql', bash: 'sh', shell: 'sh', text: 'txt', plaintext: 'txt' };
   const ext = extensions[lang] || lang || 'txt';
   const filename = `snippet_${Date.now()}.${ext}`;
-  
   const blob = new Blob([code], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
-  
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
@@ -244,76 +232,50 @@ const scrollToBottom = () => {
   border-top-left-radius: 2px;
 }
 
-/* --- STILURI PENTRU CODE BLOCKS (NOI) --- */
-/* Deep selector pentru a ajunge în HTML-ul injectat */
-:deep(.code-wrapper) {
-  margin: 10px 0;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid #ddd;
-  background: #2d2d2d; /* Match highlighting theme */
-}
-
-:deep(.code-header) {
+/* --- FOOTER CU ACTIONS --- */
+.message-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: space-between; /* Buton stânga, Timp dreapta */
   align-items: center;
-  background: #444; /* Header mai deschis decât codul */
-  padding: 5px 10px;
-  color: #ccc;
-  font-family: sans-serif;
-  font-size: 0.75rem;
-  border-bottom: 1px solid #555;
+  margin-top: 4px;
+  padding: 0 4px;
 }
 
-:deep(.lang-label) {
-  text-transform: uppercase;
-  font-weight: bold;
-  opacity: 0.8;
+.message-row.user .message-footer {
+  flex-direction: row-reverse; /* La user inversăm */
 }
 
-:deep(.code-actions) {
-  display: flex;
-  gap: 8px;
-}
-
-:deep(.action-btn) {
+.msg-action-btn {
   background: transparent;
   border: none;
-  color: #fff;
+  color: #888;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  transition: background 0.2s;
+  font-size: 0.75rem;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
 }
 
-:deep(.action-btn:hover) {
-  background: rgba(255,255,255,0.2);
+.msg-action-btn:hover {
+  color: #333;
+  background: rgba(0,0,0,0.05);
 }
 
-/* Modificări pentru a elimina padding-ul implicit al pre-ului deoarece avem wrapper */
-.markdown-body :deep(pre) {
-  margin: 0 !important;
-  border-radius: 0 0 6px 6px !important; /* Doar colțurile de jos */
-  border: none !important;
-}
+.message-time { font-size: 0.75rem; color: #999; }
 
-/* --- SFÂRȘIT STILURI CODE BLOCKS --- */
+/* --- CODE BLOCKS --- */
+:deep(.code-wrapper) { margin: 10px 0; border-radius: 6px; overflow: hidden; border: 1px solid #ddd; background: #2d2d2d; }
+:deep(.code-header) { display: flex; justify-content: space-between; align-items: center; background: #444; padding: 5px 10px; color: #ccc; font-family: sans-serif; font-size: 0.75rem; border-bottom: 1px solid #555; }
+:deep(.lang-label) { text-transform: uppercase; font-weight: bold; opacity: 0.8; }
+:deep(.code-actions) { display: flex; gap: 8px; }
+:deep(.action-btn) { background: transparent; border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+:deep(.action-btn:hover) { background: rgba(255,255,255,0.2); }
+.markdown-body :deep(pre) { margin: 0 !important; border-radius: 0 0 6px 6px !important; border: none !important; }
 
-.file-attachment-card {
-  background: white;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-top: 5px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-  font-size: 0.9rem;
-}
-
+.file-attachment-card { background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); font-size: 0.9rem; }
 .message-bubble.user .file-attachment-card { border-color: #c7d2fe; }
 .file-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f8f9fa; cursor: pointer; transition: background 0.2s; }
 .file-header:hover { background: #f1f1f1; }
@@ -324,23 +286,21 @@ const scrollToBottom = () => {
 .file-content-viewer { padding: 10px; background: #2d2d2d; color: #ccc; font-family: 'Consolas', monospace; font-size: 0.85rem; max-height: 300px; overflow-y: auto; border-top: 1px solid #ddd; }
 .file-content-viewer pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
 
-/* Markdown Styles Override Generic */
+/* Markdown Generic */
 .markdown-body :deep(code) { font-family: 'Consolas', monospace; font-size: 0.9em; }
 .markdown-body :deep(p) { margin-bottom: 0.5em; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
 
-.message-time { font-size: 0.75rem; color: #999; margin-top: 4px; align-self: flex-end; }
-.message-row.user .message-time { align-self: flex-start; }
-
-/* Dark Mode Support */
+/* Dark Mode */
 :global(.dark-theme) .message-bubble.user .bubble-content { background: #343541; border-color: #565869; color: #ececec; }
 :global(.dark-theme) .message-bubble.assistant .bubble-content { background: #444654; border-color: #565869; color: #ececec; }
 :global(.dark-theme) .file-attachment-card { background: #40414f; border-color: #565869; }
 :global(.dark-theme) .file-header { background: #343541; color: #ececec; }
 :global(.dark-theme) .file-header:hover { background: #2a2b32; }
 :global(.dark-theme) .file-name { color: #ececec; }
-
-/* Dark mode pentru code wrapper */
 :global(.dark-theme) :deep(.code-wrapper) { border-color: #565869; }
 :global(.dark-theme) :deep(.code-header) { background: #202123; border-color: #565869; }
+/* Dark Mode Action Button */
+:global(.dark-theme) .msg-action-btn { color: #aaa; }
+:global(.dark-theme) .msg-action-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
 </style>
