@@ -7,6 +7,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 const API_URL = process.env.LOCAL_AI_API_URL;
 const ADDRESS = process.env.ADDRESS;
+const DEFAULT_SYSTEM_PROMPT = "You are LocalMind, a helpful and intelligent AI assistant.";
 
 // Middleware
 app.use(cors());
@@ -125,18 +126,57 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
     let convRef = conversationId 
       ? db.collection('conversations').doc(conversationId) 
       : db.collection('conversations').doc();
+    
+    let currentSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
-    if (!conversationId) {
-      await convRef.set({ ownerId: uid, createdAt: new Date(), title: message.slice(0, 30) });
+    if (conversationId) {
+      convRef = db.collection('conversations').doc(conversationId);
+      const doc = await convRef.get();
+      
+      if (doc.exists) {
+        // Dacă conversația există, folosim prompt-ul ei persistent
+        const data = doc.data();
+        if (data.systemPrompt) {
+          currentSystemPrompt = data.systemPrompt;
+        }
+      } else {
+        // Edge case: ID trimis dar doc lipsă
+        await convRef.set({ 
+          ownerId: uid, 
+          createdAt: new Date(), 
+          title: message.slice(0, 30),
+          systemPrompt: currentSystemPrompt 
+        });
+      }
+    } else {
+      // Conversație nouă
+      convRef = db.collection('conversations').doc();
+      await convRef.set({ 
+        ownerId: uid, 
+        createdAt: new Date(), 
+        title: message.slice(0, 30),
+        systemPrompt: currentSystemPrompt // Salvăm personalitatea aleasă
+      });
     }
 
+
     await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
+
+    const messagesPayload = [
+      { role: "system", content: currentSystemPrompt },
+      { role: "user", content: message }
+    ];
 
     // Call LM Studio
     const lmResponse = await fetch(`${ADDRESS}:${API_URL}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "local-model", stream: true, messages: [{ role: "user", content: message }] }),
+      body: JSON.stringify({ 
+        model: "local-model", 
+        stream: true, 
+        messages: messagesPayload,
+        temperature: 0.7 
+      }),
     });
 
     const reader = lmResponse.body.getReader();
