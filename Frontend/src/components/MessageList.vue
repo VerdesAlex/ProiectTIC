@@ -13,8 +13,43 @@
       </div>
 
       <div :class="['message-bubble', msg.role]">
-        <div class="bubble-content markdown-body" v-html="renderMarkdown(msg.content)"></div>
-        <span v-if="msg.time" class="message-time">{{ msg.time }}</span>
+        <div 
+          class="bubble-content markdown-body" 
+          v-html="renderMarkdown(parseMessage(msg.content).text)"
+          v-if="parseMessage(msg.content).text"
+          @click="handleCodeClick"
+        ></div>
+
+        <div v-if="parseMessage(msg.content).file" class="file-attachment-card">
+          <div class="file-header" @click="toggleFile(index)">
+            <div class="file-info">
+              <span class="file-icon">📄</span>
+              <span class="file-name">{{ parseMessage(msg.content).file.name }}</span>
+            </div>
+            <button class="toggle-btn">
+              {{ isExpanded(index) ? 'Hide Content ▲' : 'Show Content ▼' }}
+            </button>
+          </div>
+          
+          <div v-if="isExpanded(index)" class="file-content-viewer">
+            <pre>{{ parseMessage(msg.content).file.content }}</pre>
+          </div>
+        </div>
+
+        <div class="message-footer">
+          <button 
+            v-if="msg.role !== 'user'" 
+            class="msg-action-btn" 
+            @click="copyMessage(parseMessage(msg.content).text, index)"
+            title="Copy full message"
+          >
+            <span v-if="copiedIndex === index">✅ Copied</span>
+            <span v-else>📋 Copy</span>
+          </button>
+
+          <span v-if="msg.time" class="message-time">{{ msg.time }}</span>
+        </div>
+
       </div>
     </div>
   </div>
@@ -34,8 +69,54 @@ const props = defineProps({
 });
 
 const scrollBox = ref(null);
+const expandedFiles = ref({});
+const copiedIndex = ref(-1); // Stare pentru feedback vizual la copiere
 
-// Markdown Config
+// --- LOGICA COPY MESSAGE (NOU) ---
+const copyMessage = async (text, index) => {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedIndex.value = index;
+    // Resetăm iconița după 2 secunde
+    setTimeout(() => {
+      copiedIndex.value = -1;
+    }, 2000);
+  } catch (err) {
+    console.error("Failed to copy message:", err);
+  }
+};
+
+// --- PARSING LOGIC ---
+const parseMessage = (content) => {
+  if (!content) return { text: '', file: null };
+  const markerStart = "\n\n--- Content of file: ";
+  const startIndex = content.indexOf(markerStart);
+  if (startIndex === -1) return { text: content, file: null };
+  
+  try {
+    const text = content.substring(0, startIndex).trim();
+    const rest = content.substring(startIndex + markerStart.length);
+    const nameEnd = rest.indexOf(" ---\n");
+    if (nameEnd === -1) return { text: content, file: null };
+    
+    const fileName = rest.substring(0, nameEnd);
+    const contentStart = nameEnd + 5;
+    const markerEnd = "\n--- End of file ---";
+    const endIndex = rest.lastIndexOf(markerEnd);
+    if (endIndex === -1) return { text: content, file: null };
+
+    const fileContent = rest.substring(contentStart, endIndex);
+    return { text, file: { name: fileName, content: fileContent } };
+  } catch (e) {
+    return { text: content, file: null };
+  }
+};
+
+const toggleFile = (index) => expandedFiles.value[index] = !expandedFiles.value[index];
+const isExpanded = (index) => !!expandedFiles.value[index];
+
+// --- MARKDOWN & CODE BUTTONS LOGIC ---
 const marked = new Marked(
   markedHighlight({
     langPrefix: 'hljs language-',
@@ -45,57 +126,181 @@ const marked = new Marked(
     }
   })
 );
-marked.setOptions({ breaks: true, gfm: true });
 
-const renderMarkdown = (text) => {
-  const rawHtml = marked.parse(text || '');
-  return DOMPurify.sanitize(rawHtml);
+const renderMarkdown = (content) => {
+  if (!content) return '';
+  const rawHtml = marked.parse(content);
+  const sanitized = DOMPurify.sanitize(rawHtml);
+
+  return sanitized.replace(
+    /<pre><code class="([^"]*)">([\s\S]*?)<\/code><\/pre>/g,
+    (match, classNames, codeContent) => {
+      const langMatch = classNames.match(/language-([a-zA-Z0-9_-]+)/);
+      const language = langMatch ? langMatch[1] : 'text';
+
+      return `
+        <div class="code-wrapper">
+          <div class="code-header">
+            <span class="lang-label">${language}</span>
+            <div class="code-actions">
+              <button class="action-btn download-btn" data-lang="${language}" title="Download">⬇</button>
+              <button class="action-btn copy-btn" title="Copy">📋</button>
+            </div>
+          </div>
+          <pre><code class="${classNames}">${codeContent}</code></pre>
+        </div>
+      `;
+    }
+  );
 };
 
-// Auto-Scroll
+const handleCodeClick = async (event) => {
+  const target = event.target;
+  if (target.closest('.copy-btn')) {
+    const btn = target.closest('.copy-btn');
+    const wrapper = btn.closest('.code-wrapper');
+    const code = wrapper.querySelector('code').innerText;
+    try {
+      await navigator.clipboard.writeText(code);
+      const originalText = btn.innerText;
+      btn.innerText = '✅';
+      setTimeout(() => btn.innerText = originalText, 2000);
+    } catch (err) { console.error('Copy failed', err); }
+  }
+  if (target.closest('.download-btn')) {
+    const btn = target.closest('.download-btn');
+    const wrapper = btn.closest('.code-wrapper');
+    const code = wrapper.querySelector('code').innerText;
+    const lang = btn.getAttribute('data-lang') || 'txt';
+    downloadCode(code, lang);
+  }
+};
+
+const downloadCode = (code, lang) => {
+  const extensions = { javascript: 'js', js: 'js', python: 'py', py: 'py', html: 'html', css: 'css', json: 'json', vue: 'vue', java: 'java', c: 'c', cpp: 'cpp', sql: 'sql', bash: 'sh', shell: 'sh', text: 'txt', plaintext: 'txt' };
+  const ext = extensions[lang] || lang || 'txt';
+  const filename = `snippet_${Date.now()}.${ext}`;
+  const blob = new Blob([code], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// --- SCROLL LOGIC ---
 watch(() => props.messages, async () => {
   await nextTick();
+  scrollToBottom();
+}, { deep: true });
+
+const scrollToBottom = () => {
   if (scrollBox.value) {
     scrollBox.value.scrollTop = scrollBox.value.scrollHeight;
   }
-}, { deep: true });
+};
 </script>
 
 <style scoped>
-.messages-display { flex: 1; overflow-y: auto; padding: 20px 10%; display: flex; flex-direction: column; gap: 24px; }
-.empty-state { height: 100%; display: flex; align-items: center; justify-content: center; color: #888; text-align: center; }
+.messages-display { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+.empty-state { height: 100%; display: flex; align-items: center; justify-content: center; color: #888; }
+.welcome-card { text-align: center; }
 
-/* Message Row & Avatars */
-.message-row { display: flex; gap: 16px; width: 100%; align-items: flex-start; }
+.message-row { display: flex; gap: 15px; max-width: 900px; margin: 0 auto; width: 100%; }
 .message-row.user { flex-direction: row-reverse; }
 
 .avatar { width: 36px; height: 36px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; font-size: 0.9rem; }
 .avatar.user { background: #5c7cfa; color: white; }
 .avatar.assistant { background: #10a37f; color: white; }
 
-/* Bubbles */
-.message-bubble { max-width: 85%; display: flex; flex-direction: column; }
-.bubble-content { padding: 10px 15px; border-radius: 8px; line-height: 1.6; font-size: 1rem; }
+.message-bubble { max-width: 85%; display: flex; flex-direction: column; gap: 8px; }
 
-/* User Bubble */
+/* User Bubble Styles */
 .message-bubble.user .bubble-content { 
   background: #eef2ff; border: 1px solid #c7d2fe; color: #1a1a1a; 
-  border-top-left-radius: 8px; border-top-right-radius: 2px; 
+  padding: 10px 15px; border-radius: 8px; line-height: 1.6;
+  border-top-right-radius: 2px;
 }
-/* AI Bubble */
+
+/* AI Bubble Styles */
 .message-bubble.assistant .bubble-content { 
   background: #f7f7f8; border: 1px solid #e5e5e5; color: #333; 
-  border-top-left-radius: 2px; border-top-right-radius: 8px;
+  padding: 10px 15px; border-radius: 8px; line-height: 1.6;
+  border-top-left-radius: 2px;
 }
 
-.message-time { font-size: 0.75rem; color: #999; margin-top: 4px; }
-.message-row.user .message-time { text-align: right; }
+/* --- FOOTER CU ACTIONS --- */
+.message-footer {
+  display: flex;
+  justify-content: space-between; /* Buton stânga, Timp dreapta */
+  align-items: center;
+  margin-top: 4px;
+  padding: 0 4px;
+}
 
-/* Markdown Styles */
-.markdown-body :deep(pre) { background: #0d1117 !important; padding: 12px; border-radius: 6px; overflow-x: auto; color: #c9d1d9; margin: 10px 0; }
-.markdown-body :deep(code) { font-family: 'Courier New', Courier, monospace; }
+.message-row.user .message-footer {
+  flex-direction: row-reverse; /* La user inversăm */
+}
 
-/* Dark Theme Overrides */
-:global(.dark-theme) .message-bubble.user .bubble-content { background: rgba(92, 124, 250, 0.15); border: 1px solid rgba(92, 124, 250, 0.3); color: #ececec; }
-:global(.dark-theme) .message-bubble.assistant .bubble-content { background: #444654; border: 1px solid rgba(255,255,255,0.05); color: #ececec; }
+.msg-action-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+}
+
+.msg-action-btn:hover {
+  color: #333;
+  background: rgba(0,0,0,0.05);
+}
+
+.message-time { font-size: 0.75rem; color: #999; }
+
+/* --- CODE BLOCKS --- */
+:deep(.code-wrapper) { margin: 10px 0; border-radius: 6px; overflow: hidden; border: 1px solid #ddd; background: #2d2d2d; }
+:deep(.code-header) { display: flex; justify-content: space-between; align-items: center; background: #444; padding: 5px 10px; color: #ccc; font-family: sans-serif; font-size: 0.75rem; border-bottom: 1px solid #555; }
+:deep(.lang-label) { text-transform: uppercase; font-weight: bold; opacity: 0.8; }
+:deep(.code-actions) { display: flex; gap: 8px; }
+:deep(.action-btn) { background: transparent; border: none; color: #fff; cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+:deep(.action-btn:hover) { background: rgba(255,255,255,0.2); }
+.markdown-body :deep(pre) { margin: 0 !important; border-radius: 0 0 6px 6px !important; border: none !important; }
+
+.file-attachment-card { background: white; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; margin-top: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); font-size: 0.9rem; }
+.message-bubble.user .file-attachment-card { border-color: #c7d2fe; }
+.file-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f8f9fa; cursor: pointer; transition: background 0.2s; }
+.file-header:hover { background: #f1f1f1; }
+.file-info { display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.file-name { font-weight: 600; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.file-icon { font-size: 1.1rem; }
+.toggle-btn { background: none; border: none; font-size: 0.75rem; color: #666; cursor: pointer; }
+.file-content-viewer { padding: 10px; background: #2d2d2d; color: #ccc; font-family: 'Consolas', monospace; font-size: 0.85rem; max-height: 300px; overflow-y: auto; border-top: 1px solid #ddd; }
+.file-content-viewer pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+
+/* Markdown Generic */
+.markdown-body :deep(code) { font-family: 'Consolas', monospace; font-size: 0.9em; }
+.markdown-body :deep(p) { margin-bottom: 0.5em; }
+.markdown-body :deep(p:last-child) { margin-bottom: 0; }
+
+/* Dark Mode */
+:global(.dark-theme) .message-bubble.user .bubble-content { background: #343541; border-color: #565869; color: #ececec; }
+:global(.dark-theme) .message-bubble.assistant .bubble-content { background: #444654; border-color: #565869; color: #ececec; }
+:global(.dark-theme) .file-attachment-card { background: #40414f; border-color: #565869; }
+:global(.dark-theme) .file-header { background: #343541; color: #ececec; }
+:global(.dark-theme) .file-header:hover { background: #2a2b32; }
+:global(.dark-theme) .file-name { color: #ececec; }
+:global(.dark-theme) :deep(.code-wrapper) { border-color: #565869; }
+:global(.dark-theme) :deep(.code-header) { background: #202123; border-color: #565869; }
+/* Dark Mode Action Button */
+:global(.dark-theme) .msg-action-btn { color: #aaa; }
+:global(.dark-theme) .msg-action-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
 </style>
