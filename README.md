@@ -7,6 +7,6 @@ Aplicatia este o aplicatie de tip chat cu un AI care ruleaza local si raspunde. 
 TODOs (post finishing the app):
 1) stop generation btn
 2) personalizare ai
-3) inserare fisiere 
-4) titluri generate de AI pe baza primului msj
+3) inserare fisiere -- done
+4) titluri generate de AI pe baza primului msj 
 3) text-to-speech btn in chat
