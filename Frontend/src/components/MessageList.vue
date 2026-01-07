@@ -70,15 +70,14 @@ const props = defineProps({
 
 const scrollBox = ref(null);
 const expandedFiles = ref({});
-const copiedIndex = ref(-1); // Stare pentru feedback vizual la copiere
+const copiedIndex = ref(-1);
 
-// --- LOGICA COPY MESSAGE (NOU) ---
+// --- LOGICA COPY MESSAGE ---
 const copyMessage = async (text, index) => {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
     copiedIndex.value = index;
-    // Resetăm iconița după 2 secunde
     setTimeout(() => {
       copiedIndex.value = -1;
     }, 2000);
@@ -87,11 +86,17 @@ const copyMessage = async (text, index) => {
   }
 };
 
-// --- PARSING LOGIC ---
+// --- PARSING LOGIC (FIXED) ---
 const parseMessage = (content) => {
-  if (!content) return { text: '', file: null };
+  // [FIX] Verificăm explicit dacă content este string.
+  // Previne eroarea "content.indexOf is not a function" dacă content este un Obiect sau null.
+  if (typeof content !== 'string') {
+    return { text: '', file: null };
+  }
+
   const markerStart = "\n\n--- Content of file: ";
   const startIndex = content.indexOf(markerStart);
+  
   if (startIndex === -1) return { text: content, file: null };
   
   try {
@@ -205,6 +210,7 @@ const scrollToBottom = () => {
 </script>
 
 <style scoped>
+/* CSS Neschimbat - folosește stilurile pe care le ai deja */
 .messages-display { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; }
 .empty-state { height: 100%; display: flex; align-items: center; justify-content: center; color: #888; }
 .welcome-card { text-align: center; }
@@ -218,55 +224,26 @@ const scrollToBottom = () => {
 
 .message-bubble { max-width: 85%; display: flex; flex-direction: column; gap: 8px; }
 
-/* User Bubble Styles */
 .message-bubble.user .bubble-content { 
   background: #eef2ff; border: 1px solid #c7d2fe; color: #1a1a1a; 
   padding: 10px 15px; border-radius: 8px; line-height: 1.6;
   border-top-right-radius: 2px;
 }
 
-/* AI Bubble Styles */
 .message-bubble.assistant .bubble-content { 
   background: #f7f7f8; border: 1px solid #e5e5e5; color: #333; 
   padding: 10px 15px; border-radius: 8px; line-height: 1.6;
   border-top-left-radius: 2px;
 }
 
-/* --- FOOTER CU ACTIONS --- */
-.message-footer {
-  display: flex;
-  justify-content: space-between; /* Buton stânga, Timp dreapta */
-  align-items: center;
-  margin-top: 4px;
-  padding: 0 4px;
-}
+.message-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; padding: 0 4px; }
+.message-row.user .message-footer { flex-direction: row-reverse; }
 
-.message-row.user .message-footer {
-  flex-direction: row-reverse; /* La user inversăm */
-}
-
-.msg-action-btn {
-  background: transparent;
-  border: none;
-  color: #888;
-  cursor: pointer;
-  font-size: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: color 0.2s, background 0.2s;
-}
-
-.msg-action-btn:hover {
-  color: #333;
-  background: rgba(0,0,0,0.05);
-}
+.msg-action-btn { background: transparent; border: none; color: #888; cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; transition: color 0.2s, background 0.2s; }
+.msg-action-btn:hover { color: #333; background: rgba(0,0,0,0.05); }
 
 .message-time { font-size: 0.75rem; color: #999; }
 
-/* --- CODE BLOCKS --- */
 :deep(.code-wrapper) { margin: 10px 0; border-radius: 6px; overflow: hidden; border: 1px solid #ddd; background: #2d2d2d; }
 :deep(.code-header) { display: flex; justify-content: space-between; align-items: center; background: #444; padding: 5px 10px; color: #ccc; font-family: sans-serif; font-size: 0.75rem; border-bottom: 1px solid #555; }
 :deep(.lang-label) { text-transform: uppercase; font-weight: bold; opacity: 0.8; }
@@ -286,12 +263,10 @@ const scrollToBottom = () => {
 .file-content-viewer { padding: 10px; background: #2d2d2d; color: #ccc; font-family: 'Consolas', monospace; font-size: 0.85rem; max-height: 300px; overflow-y: auto; border-top: 1px solid #ddd; }
 .file-content-viewer pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
 
-/* Markdown Generic */
 .markdown-body :deep(code) { font-family: 'Consolas', monospace; font-size: 0.9em; }
 .markdown-body :deep(p) { margin-bottom: 0.5em; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
 
-/* Dark Mode */
 :global(.dark-theme) .message-bubble.user .bubble-content { background: #343541; border-color: #565869; color: #ececec; }
 :global(.dark-theme) .message-bubble.assistant .bubble-content { background: #444654; border-color: #565869; color: #ececec; }
 :global(.dark-theme) .file-attachment-card { background: #40414f; border-color: #565869; }
@@ -300,7 +275,6 @@ const scrollToBottom = () => {
 :global(.dark-theme) .file-name { color: #ececec; }
 :global(.dark-theme) :deep(.code-wrapper) { border-color: #565869; }
 :global(.dark-theme) :deep(.code-header) { background: #202123; border-color: #565869; }
-/* Dark Mode Action Button */
 :global(.dark-theme) .msg-action-btn { color: #aaa; }
 :global(.dark-theme) .msg-action-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
 </style>

@@ -31,11 +31,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed, watch, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useStore } from 'vuex';
 import { authService } from '@/firebase/authService';
-import { auth } from '@/firebase/config';
+import { auth, db } from '@/firebase/config';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 // Componente
 import Sidebar from '@/components/Sidebar.vue';
@@ -46,17 +47,55 @@ const route = useRoute();
 const router = useRouter();
 const store = useStore();
 
-// UI State local (doar ce ține de input/temă)
 const userInput = ref('');
 const isDark = ref(localStorage.getItem('theme') === 'dark');
 const userEmail = ref('');
+const pendingSystemPrompt = ref(null);
+const pendingAiName = ref(null);
+
+let unsubscribeMessages = null;
 
 // --- VUEX STATE MAPPING ---
-// Folosim computed pentru a fi mereu sincronizați cu Store-ul
 const messages = computed(() => store.getters['chat/currentMessages']);
 const history = computed(() => store.getters['chat/allSessions']);
 const currentChatId = computed(() => store.getters['chat/activeChatId']);
 const isGenerating = computed(() => store.getters['chat/isGenerating']);
+
+// --- REAL-TIME SYNC ---
+const subscribeToMessages = (chatId) => {
+  if (unsubscribeMessages) {
+    unsubscribeMessages();
+    unsubscribeMessages = null;
+  }
+
+  if (!chatId) {
+    store.commit('chat/SET_MESSAGES', []);
+    return;
+  }
+
+  const q = query(
+    collection(db, 'conversations', chatId, 'messages'),
+    orderBy('timestamp', 'asc')
+  );
+
+  unsubscribeMessages = onSnapshot(q, (snapshot) => {
+    const msgs = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        role: data.role,
+        content: data.content,
+        // Formatare timp pentru UI (timestamp -> string HH:MM)
+        time: data.timestamp && data.timestamp.seconds 
+          ? new Date(data.timestamp.seconds * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+          : ''
+      };
+    });
+    store.commit('chat/SET_MESSAGES', msgs); 
+  }, (error) => {
+    console.error("Snapshot Error:", error);
+  });
+};
 
 // --- LIFECYCLE ---
 onMounted(async () => {
@@ -65,26 +104,29 @@ onMounted(async () => {
 
   if (auth.currentUser) userEmail.value = auth.currentUser.email;
 
-  // 1. Încărcăm lista de sesiuni
   await store.dispatch('chat/fetchSessions');
   
-  // 2. Dacă suntem pe un URL cu ID, încărcăm mesajele
   if (route.params.id) {
-    await store.dispatch('chat/fetchMessages', route.params.id);
+    // FIX: Numele corect al mutației
+    store.commit('chat/SET_CURRENT_CHAT_ID', route.params.id);
+    subscribeToMessages(route.params.id);
   }
 });
 
-// Watcher pentru schimbarea URL-ului (ex: click pe istoric sau New Chat)
-watch(() => route.params.id, async (newId) => {
-  if (newId && newId !== currentChatId.value) {
-    await store.dispatch('chat/fetchMessages', newId);
-  } else if (!newId) {
-    // Dacă URL-ul e doar /chat, curățăm store-ul
+onUnmounted(() => {
+  if (unsubscribeMessages) unsubscribeMessages();
+});
+
+watch(() => route.params.id, (newId) => {
+  if (newId) {
+    store.commit('chat/SET_CURRENT_CHAT_ID', newId);
+    subscribeToMessages(newId);
+  } else {
     store.dispatch('chat/startNewChat');
+    subscribeToMessages(null);
   }
 });
 
-// Watcher invers: Dacă store-ul primește un ID nou (după primul mesaj într-un chat nou), actualizăm URL-ul
 watch(currentChatId, (newId) => {
   if (newId && route.params.id !== newId) {
     router.replace(`/chat/${newId}`);
@@ -92,7 +134,6 @@ watch(currentChatId, (newId) => {
 });
 
 // --- ACTIONS UI ---
-
 const toggleTheme = () => {
   isDark.value = !isDark.value;
   localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
@@ -102,26 +143,27 @@ const handleLogout = async () => {
   await authService.logout();
   store.commit('auth/SET_USER', null);
   store.commit('auth/SET_TOKEN', null);
-  store.commit('chat/CLEAR_CHAT'); // Curățăm și chat-ul la logout
+  store.commit('chat/CLEAR_CHAT');
   router.push('/login');
 };
 
-const createNewChat = () => {
+const createNewChat = (chatConfig) => {
+  // chatConfig vine acum din Modal: { systemPrompt, aiName }
+  pendingSystemPrompt.value = chatConfig.systemPrompt;
+  pendingAiName.value = chatConfig.aiName;
+  
   store.dispatch('chat/startNewChat');
   router.push('/chat');
 };
 
 const selectChat = (id) => {
-  // Doar schimbăm ruta, watcher-ul de pe route.params se ocupă de fetch
+  pendingSystemPrompt.value = null;
   router.push(`/chat/${id}`);
 };
 
 const handleDelete = async (id) => {
   if(!confirm("Delete this conversation?")) return;
-  
   await store.dispatch('chat/deleteSession', id);
-  
-  // Dacă am șters chat-ul curent, mergem la pagina de start
   if (currentChatId.value === id || currentChatId.value === null) {
     router.push('/chat');
   }
@@ -135,15 +177,22 @@ const onSendMessage = async () => {
   if (!userInput.value.trim() || isGenerating.value) return;
   
   const text = userInput.value;
-  userInput.value = ''; // Golim input-ul imediat
+  userInput.value = ''; 
   
-  // Trimitem acțiunea către store
-  await store.dispatch('chat/sendMessage', text);
+  // Trimitem mesajul + Configurația de start (dacă există)
+  await store.dispatch('chat/sendMessage', { 
+    message: text, 
+    systemPrompt: pendingSystemPrompt.value,
+    title: pendingAiName.value // Trimitem și numele AI-ului ca titlu de conversație
+  });
+
+  // Resetăm starea temporară
+  if (pendingSystemPrompt.value) pendingSystemPrompt.value = null;
+  if (pendingAiName.value) pendingAiName.value = null;
 };
 </script>
 
 <style scoped>
-/* CSS rămâne neschimbat */
 .chat-container { display: flex; height: 100vh; background: #fff; color: #333; transition: background 0.3s, color 0.3s; }
 .chat-container.dark-theme { background: #343541; color: #ececec; }
 .chat-main { flex: 1; display: flex; flex-direction: column; position: relative; background: #fff; }
