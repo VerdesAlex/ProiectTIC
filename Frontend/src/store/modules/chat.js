@@ -6,35 +6,29 @@ const state = {
   sessions: [],
   messages: [],
   currentChatId: null,
-  isLoading: false,
-  abortController: null
+  abortController: null // Controlerul pentru anularea cererii
 };
 
 const getters = {
   allSessions: (state) => state.sessions,
   currentMessages: (state) => state.messages,
   activeChatId: (state) => state.currentChatId,
+  // Flag-ul isGenerating e true atâta timp cât avem un controller activ
   isGenerating: (state) => !!state.abortController
 };
 
 const mutations = {
   SET_SESSIONS(state, sessions) { state.sessions = sessions; },
   
-  // --- FIX STREAMING CONFLICT ---
   SET_MESSAGES(state, dbMessages) {
-    // Dacă generăm un răspuns, avem un mesaj local "temp-ai" care nu e încă în DB.
-    // Trebuie să-l păstrăm vizibil.
+    // Păstrăm mesajul local (cel care se generează) vizibil chiar dacă DB-ul trimite update-uri
     if (state.abortController && state.messages.length > 0) {
       const lastLocalMsg = state.messages[state.messages.length - 1];
-      
-      // Verificăm dacă ultimul mesaj este cel local de la AI
       if (lastLocalMsg.isLocal) {
-        // Combinăm mesajele din DB cu mesajul nostru local curent
         state.messages = [...dbMessages, lastLocalMsg];
         return;
       }
     }
-    // Comportament normal: suprascriem cu ce e în DB
     state.messages = dbMessages;
   },
 
@@ -42,7 +36,6 @@ const mutations = {
   
   UPDATE_LAST_MESSAGE_CONTENT(state, contentChunk) {
     const lastMsg = state.messages[state.messages.length - 1];
-    // Ne asigurăm că actualizăm doar mesajul AI
     if (lastMsg && lastMsg.role === 'assistant') {
       lastMsg.content += contentChunk;
     }
@@ -83,6 +76,7 @@ const actions = {
       const formattedMessages = response.data.map(m => ({
         role: m.role,
         content: m.content,
+        // Conversie timestamp Firebase -> String lizibil
         time: m.timestamp && m.timestamp._seconds 
           ? new Date(m.timestamp._seconds * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
           : ''
@@ -107,21 +101,17 @@ const actions = {
     }
   },
 
-  // --- FIX SYSTEM PROMPT & PAYLOAD ---
   async sendMessage({ commit, state, dispatch }, payload) {
-    // 1. Extragem datele corect. Payload poate fi String (legacy) sau Obiect
     const messageText = typeof payload === 'string' ? payload : payload.message;
     const systemPrompt = typeof payload === 'object' ? payload.systemPrompt : null;
     const title = typeof payload === 'object' ? payload.title : null;
 
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // A. Adăugăm mesajul userului (Optimistic)
-    // Notă: Acesta va fi suprascris de onSnapshot rapid, dar e ok
+    // 1. Adăugăm mesajul userului
     commit('ADD_MESSAGE', { role: 'user', content: messageText, time: now });
 
-    // B. Adăugăm placeholder pentru AI cu flag-ul `isLocal: true`
-    // Acest flag previne ștergerea mesajului de către onSnapshot în SET_MESSAGES
+    // 2. Adăugăm mesajul "gol" pentru asistent (local)
     commit('ADD_MESSAGE', { 
       role: 'assistant', 
       content: '', 
@@ -129,6 +119,7 @@ const actions = {
       isLocal: true 
     });
 
+    // 3. Creăm Controller-ul pentru Stop Generation
     const controller = new AbortController();
     commit('SET_ABORT_CONTROLLER', controller);
 
@@ -145,11 +136,13 @@ const actions = {
         body: JSON.stringify({ 
           message: messageText, 
           conversationId: state.currentChatId,
-          systemPrompt: systemPrompt, // Trimitem Personalitatea
-          title: title                // Trimitem Numele AI
+          systemPrompt: systemPrompt,
+          title: title
         }),
-        signal: controller.signal
+        signal: controller.signal // <--- AICI legăm butonul de Stop
       });
+
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -174,11 +167,11 @@ const actions = {
                 commit('UPDATE_LAST_MESSAGE_CONTENT', data.content);
               }
               
-              if (data.done && data.conversationId) {
-                if (isNewChat) {
-                  commit('SET_CURRENT_CHAT_ID', data.conversationId);
-                  dispatch('fetchSessions'); 
-                }
+              // Actualizăm ID-ul conversației dacă e una nouă
+              if (data.done && data.conversationId && isNewChat) {
+                commit('SET_CURRENT_CHAT_ID', data.conversationId);
+                dispatch('fetchSessions'); 
+                isNewChat = false; 
               }
             } catch (e) {
               console.warn("JSON Parse error", e);
@@ -189,23 +182,23 @@ const actions = {
 
     } catch (err) {
       if (err.name === 'AbortError') {
-        commit('SET_LAST_MESSAGE_ERROR', '\n[Stopped by user]');
+        console.log("Chat generation stopped by user.");
+        commit('SET_LAST_MESSAGE_ERROR', ' [Stopped]');
       } else {
         console.error("Stream Error:", err);
         commit('SET_LAST_MESSAGE_ERROR', '\n[Error communicating with server]');
       }
     } finally {
       commit('SET_ABORT_CONTROLLER', null);
-      // După ce terminăm, putem re-fetchui o dată pentru a avea datele curate din DB
-      if (state.currentChatId) {
-        // dispatch('fetchMessages', state.currentChatId); // Opțional, pentru consistență
-      }
+      // Opțional: Dacă conversația a fost oprită, putem face un refresh la mesaje
+      // pentru a fi siguri că suntem sincronizați cu DB-ul (în cazul în care DB-ul a salvat parțial).
     }
   },
 
+  // Acțiunea apelată de butonul de Stop
   stopGeneration({ state, commit }) {
     if (state.abortController) {
-      state.abortController.abort();
+      state.abortController.abort(); // Declanșează "AbortError" în fetch-ul de mai sus
       commit('SET_ABORT_CONTROLLER', null);
     }
   }
