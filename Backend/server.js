@@ -12,7 +12,6 @@ const API_URL = process.env.LOCAL_AI_API_URL || "v1/chat/completions";
 const DEFAULT_SYSTEM_PROMPT = "You are LocalMind, a helpful and intelligent AI assistant.";
 
 // Middleware
-const cors = require('cors');
 app.use(cors({
   origin: ['https://proiect-tic.vercel.app', 'http://localhost:5173'], // Adaugă URL-ul tău de Vercel
   methods: ['GET', 'POST'],
