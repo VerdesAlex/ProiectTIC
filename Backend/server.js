@@ -113,59 +113,49 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
 
 
 app.post('/api/chat', validateFirebaseToken, async (req, res) => {
-  // Set headers for streaming
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
   try {
-    const { message, conversationId } = req.body;
+    // 1. Primim systemPrompt și title din frontend
+    const { message, conversationId, systemPrompt, title } = req.body;
     const { uid } = req.user;
 
-    // Standard Firestore Setup
-    let convRef = conversationId 
-      ? db.collection('conversations').doc(conversationId) 
-      : db.collection('conversations').doc();
-    
-    let currentSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    let convRef;
+    // Default prompt dacă nu e furnizat
+    let currentSystemPrompt = systemPrompt || "You are LocalMind, a helpful AI assistant.";
 
     if (conversationId) {
       convRef = db.collection('conversations').doc(conversationId);
       const doc = await convRef.get();
       
+      // Dacă conversația există, folosim prompt-ul ei persistent (ca să nu se schimbe personalitatea la jumătate)
       if (doc.exists) {
-        // Dacă conversația există, folosim prompt-ul ei persistent
         const data = doc.data();
-        if (data.systemPrompt) {
-          currentSystemPrompt = data.systemPrompt;
-        }
-      } else {
-        // Edge case: ID trimis dar doc lipsă
-        await convRef.set({ 
-          ownerId: uid, 
-          createdAt: new Date(), 
-          title: message.slice(0, 30),
-          systemPrompt: currentSystemPrompt 
-        });
+        if (data.systemPrompt) currentSystemPrompt = data.systemPrompt;
       }
     } else {
-      // Conversație nouă
+      // Conversație nouă: Salvăm prompt-ul și titlul (Numele AI)
       convRef = db.collection('conversations').doc();
       await convRef.set({ 
         ownerId: uid, 
         createdAt: new Date(), 
-        title: message.slice(0, 30),
-        systemPrompt: currentSystemPrompt // Salvăm personalitatea aleasă
+        title: title || message.slice(0, 30), // Folosim numele AI-ului dacă există
+        systemPrompt: currentSystemPrompt 
       });
     }
 
-
+    // Salvăm mesajul userului
     await convRef.collection('messages').add({ content: message, role: 'user', ownerId: uid, timestamp: new Date() });
 
+    // 2. Construim payload-ul pentru AI cu System Prompt
     const messagesPayload = [
       { role: "system", content: currentSystemPrompt },
       { role: "user", content: message }
     ];
+
+    console.log(`🧠 Sending to AI (System: ${currentSystemPrompt.slice(0, 15)}...)...`);
 
     // Call LM Studio
     const lmResponse = await fetch(`${ADDRESS}:${API_URL}`, {
@@ -174,7 +164,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
       body: JSON.stringify({ 
         model: "local-model", 
         stream: true, 
-        messages: messagesPayload,
+        messages: messagesPayload, // <-- AICI era problema, acum trimitem contextul
         temperature: 0.7 
       }),
     });
@@ -197,7 +187,7 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
             const content = data.choices[0]?.delta?.content;
             if (content) {
               fullAiResponse += content;
-              // SEND TO FRONTEND
+              // Trimitem chunk către frontend
               res.write(`data: ${JSON.stringify({ content })}\n\n`);
             }
           } catch (e) {}
@@ -205,15 +195,16 @@ app.post('/api/chat', validateFirebaseToken, async (req, res) => {
       }
     }
 
-    // Final Database Save
+    // Salvăm răspunsul complet în DB
     await convRef.collection('messages').add({ content: fullAiResponse, role: 'assistant', ownerId: uid, timestamp: new Date() });
     
-    // Signal end of stream
+    // Semnalăm finalul
     res.write(`data: ${JSON.stringify({ done: true, conversationId: convRef.id })}\n\n`);
     res.end();
 
   } catch (error) {
     console.error("Server Error:", error);
+    res.write(`data: ${JSON.stringify({ error: "Processing failed" })}\n\n`);
     res.end();
   }
 });

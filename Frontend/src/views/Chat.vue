@@ -51,6 +51,7 @@ const userInput = ref('');
 const isDark = ref(localStorage.getItem('theme') === 'dark');
 const userEmail = ref('');
 const pendingSystemPrompt = ref(null);
+const pendingAiName = ref(null);
 
 let unsubscribeMessages = null;
 
@@ -146,8 +147,11 @@ const handleLogout = async () => {
   router.push('/login');
 };
 
-const createNewChat = (systemPrompt) => {
-  pendingSystemPrompt.value = systemPrompt;
+const createNewChat = (chatConfig) => {
+  // chatConfig vine acum din Modal: { systemPrompt, aiName }
+  pendingSystemPrompt.value = chatConfig.systemPrompt;
+  pendingAiName.value = chatConfig.aiName;
+  
   store.dispatch('chat/startNewChat');
   router.push('/chat');
 };
@@ -175,12 +179,16 @@ const onSendMessage = async () => {
   const text = userInput.value;
   userInput.value = ''; 
   
+  // Trimitem mesajul + Configurația de start (dacă există)
   await store.dispatch('chat/sendMessage', { 
     message: text, 
-    systemPrompt: pendingSystemPrompt.value 
+    systemPrompt: pendingSystemPrompt.value,
+    title: pendingAiName.value // Trimitem și numele AI-ului ca titlu de conversație
   });
 
+  // Resetăm starea temporară
   if (pendingSystemPrompt.value) pendingSystemPrompt.value = null;
+  if (pendingAiName.value) pendingAiName.value = null;
 };
 </script>
 

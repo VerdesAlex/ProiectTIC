@@ -1,4 +1,4 @@
-/* fisier: verdesalex/proiecttic/ProiectTIC-Development/Frontend/src/store/modules/chat.js */
+/* fisier: Frontend/src/store/modules/chat.js */
 import apiClient from '../../axios';
 import { authService } from '@/firebase/authService';
 
@@ -19,18 +19,40 @@ const getters = {
 
 const mutations = {
   SET_SESSIONS(state, sessions) { state.sessions = sessions; },
-  SET_MESSAGES(state, messages) { state.messages = messages; },
+  
+  // --- FIX STREAMING CONFLICT ---
+  SET_MESSAGES(state, dbMessages) {
+    // Dacă generăm un răspuns, avem un mesaj local "temp-ai" care nu e încă în DB.
+    // Trebuie să-l păstrăm vizibil.
+    if (state.abortController && state.messages.length > 0) {
+      const lastLocalMsg = state.messages[state.messages.length - 1];
+      
+      // Verificăm dacă ultimul mesaj este cel local de la AI
+      if (lastLocalMsg.isLocal) {
+        // Combinăm mesajele din DB cu mesajul nostru local curent
+        state.messages = [...dbMessages, lastLocalMsg];
+        return;
+      }
+    }
+    // Comportament normal: suprascriem cu ce e în DB
+    state.messages = dbMessages;
+  },
+
   ADD_MESSAGE(state, message) { state.messages.push(message); },
+  
   UPDATE_LAST_MESSAGE_CONTENT(state, contentChunk) {
     const lastMsg = state.messages[state.messages.length - 1];
+    // Ne asigurăm că actualizăm doar mesajul AI
     if (lastMsg && lastMsg.role === 'assistant') {
       lastMsg.content += contentChunk;
     }
   },
+  
   SET_LAST_MESSAGE_ERROR(state, errorMessage) {
     const lastMsg = state.messages[state.messages.length - 1];
     if (lastMsg) lastMsg.content += errorMessage;
   },
+  
   SET_CURRENT_CHAT_ID(state, id) { state.currentChatId = id; },
   REMOVE_SESSION(state, id) { state.sessions = state.sessions.filter(s => s.id !== id); },
   SET_ABORT_CONTROLLER(state, controller) { state.abortController = controller; },
@@ -61,7 +83,6 @@ const actions = {
       const formattedMessages = response.data.map(m => ({
         role: m.role,
         content: m.content,
-        // Conversie timestamp pentru UI
         time: m.timestamp && m.timestamp._seconds 
           ? new Date(m.timestamp._seconds * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
           : ''
@@ -73,34 +94,40 @@ const actions = {
     }
   },
 
-  startNewChat({ commit }) {
-    commit('CLEAR_CHAT');
-  },
+  startNewChat({ commit }) { commit('CLEAR_CHAT'); },
 
   async deleteSession({ commit, state }, chatId) {
     try {
       await apiClient.delete(`/api/conversations/${chatId}`);
       commit('REMOVE_SESSION', chatId);
-      if (state.currentChatId === chatId) {
-        commit('CLEAR_CHAT');
-      }
+      if (state.currentChatId === chatId) commit('CLEAR_CHAT');
     } catch (error) {
       console.error("Error deleting chat:", error);
       alert("Failed to delete chat.");
     }
   },
 
-  // MODIFICAT: Acum acceptă un payload obiect { message, systemPrompt }
+  // --- FIX SYSTEM PROMPT & PAYLOAD ---
   async sendMessage({ commit, state, dispatch }, payload) {
-    // 1. Extragem datele (suportă și string simplu pentru compatibilitate)
+    // 1. Extragem datele corect. Payload poate fi String (legacy) sau Obiect
     const messageText = typeof payload === 'string' ? payload : payload.message;
     const systemPrompt = typeof payload === 'object' ? payload.systemPrompt : null;
+    const title = typeof payload === 'object' ? payload.title : null;
 
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    // A. Optimistic Update
+    // A. Adăugăm mesajul userului (Optimistic)
+    // Notă: Acesta va fi suprascris de onSnapshot rapid, dar e ok
     commit('ADD_MESSAGE', { role: 'user', content: messageText, time: now });
-    commit('ADD_MESSAGE', { role: 'assistant', content: '', time: now });
+
+    // B. Adăugăm placeholder pentru AI cu flag-ul `isLocal: true`
+    // Acest flag previne ștergerea mesajului de către onSnapshot în SET_MESSAGES
+    commit('ADD_MESSAGE', { 
+      role: 'assistant', 
+      content: '', 
+      time: now, 
+      isLocal: true 
+    });
 
     const controller = new AbortController();
     commit('SET_ABORT_CONTROLLER', controller);
@@ -118,7 +145,8 @@ const actions = {
         body: JSON.stringify({ 
           message: messageText, 
           conversationId: state.currentChatId,
-          systemPrompt: systemPrompt // Trimitem personalitatea aleasă
+          systemPrompt: systemPrompt, // Trimitem Personalitatea
+          title: title                // Trimitem Numele AI
         }),
         signal: controller.signal
       });
@@ -168,6 +196,10 @@ const actions = {
       }
     } finally {
       commit('SET_ABORT_CONTROLLER', null);
+      // După ce terminăm, putem re-fetchui o dată pentru a avea datele curate din DB
+      if (state.currentChatId) {
+        // dispatch('fetchMessages', state.currentChatId); // Opțional, pentru consistență
+      }
     }
   },
 
