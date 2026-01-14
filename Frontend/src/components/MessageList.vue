@@ -225,13 +225,13 @@ const scrollToBottom = () => {
 .message-bubble { max-width: 85%; display: flex; flex-direction: column; gap: 8px; }
 
 .message-bubble.user .bubble-content { 
-  background: #eef2ff; border: 1px solid #c7d2fe; color: #1a1a1a; 
+  background: #b1eef7; border: 1px solid #c7d2fe; color: #1a1a1a; 
   padding: 10px 15px; border-radius: 8px; line-height: 1.6;
   border-top-right-radius: 2px;
 }
 
 .message-bubble.assistant .bubble-content { 
-  background: #f7f7f8; border: 1px solid #e5e5e5; color: #333; 
+  background: #bcf7d3; border: 1px solid #e5e5e5; color: #333; 
   padding: 10px 15px; border-radius: 8px; line-height: 1.6;
   border-top-left-radius: 2px;
 }
