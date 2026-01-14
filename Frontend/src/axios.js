@@ -1,9 +1,10 @@
 // src/axios.js
 import axios from 'axios';
-import store from './store';
+// Importăm instanța auth direct din fișierul tău de configurare
+import { auth } from './firebase/config'; 
+
 const API_URL = import.meta.env.VITE_API_URL;
 
-// Setează URL-ul de bază al backend-ului tău (ajustează portul dacă e necesar)
 const apiClient = axios.create({
   baseURL: API_URL,
   headers: {
@@ -11,20 +12,21 @@ const apiClient = axios.create({
   }
 });
 
-// Interceptor pentru cereri (Request Interceptor)
-apiClient.interceptors.request.use(
-  config => {
-    // Luăm token-ul din Vuex Store
-    const token = store.getters['auth/isAuthenticated'] ? store.state.auth.token : null;
-    
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  error => {
-    return Promise.reject(error);
+// Interceptor pentru cereri
+apiClient.interceptors.request.use(async (config) => {
+  // Folosim instanța auth importată mai sus
+  const user = auth.currentUser;
+  
+  if (user) {
+    // Obținem token-ul utilizatorului logat
+    const token = await user.getIdToken();
+    // Îl adăugăm în header-ul Authorization pentru Backend (Render)
+    config.headers.Authorization = `Bearer ${token}`;
   }
-);
+  
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
 
 export default apiClient;
