@@ -14,30 +14,29 @@ const getters = {
 }
 
 const actions = {
+  // --- LOGIN ---
   async login({ commit }, { email, password }) {
     commit('CLEAR_ERROR');
     try {
-      // 1. Login cu Firebase
-      const user = await authService.login(email, password);
-      // 2. Obține token-ul JWT pentru Backend
-      const token = await authService.getToken();
+      // 1. Login Firebase
+      const firebaseUser = await authService.login(email, password);
       
-      commit('SET_USER', user);
-      commit('SET_TOKEN', token);
-      return true; // Succes
-    } catch (error) {
-      commit('SET_ERROR', error);
-      return false; // Eroare
-    }
-  },
+      // 2. Token Backend
+      const token = await firebaseUser.getIdToken(); 
 
-  async signup({ commit }, { email, password }) {
-    commit('CLEAR_ERROR');
-    try {
-      const user = await authService.signUp(email, password);
-      const token = await authService.getToken();
+      // 3. Citim Avatarul din Firestore
+      const userProfile = await authService.getUserProfile(firebaseUser.uid);
+
+      // 4. Combinăm datele (User Auth + Avatar Firestore)
+      const fullUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        emailVerified: firebaseUser.emailVerified,
+        photoURL: userProfile?.avatar || null, // Aici e cheia
+        ...userProfile
+      };
       
-      commit('SET_USER', user);
+      commit('SET_USER', fullUser);
       commit('SET_TOKEN', token);
       return true;
     } catch (error) {
@@ -46,19 +45,48 @@ const actions = {
     }
   },
 
+  // --- SIGNUP ---
+  async signup({ commit }, { email, password }) {
+    commit('CLEAR_ERROR');
+    try {
+      const firebaseUser = await authService.signUp(email, password);
+      const token = await firebaseUser.getIdToken();
+      
+      // La signup nu avem încă avatar, dar setăm structura
+      const fullUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        photoURL: null
+      };
+      
+      commit('SET_USER', fullUser);
+      commit('SET_TOKEN', token);
+      return true;
+    } catch (error) {
+      commit('SET_ERROR', error);
+      return false;
+    }
+  },
+
+  // --- LOGOUT ---
   async logout({ commit }) {
     await authService.logout();
     commit('RESET_AUTH');
   },
 
-  async updateAvatar({ commit, state }, file) {
+  // --- UPDATE AVATAR (fără refresh) ---
+  async updateAvatar({ commit, state }, base64Image) {
+    if (!state.user) return;
+    
     try {
-      // Apelăm serviciul
-      const photoURL = await authService.uploadProfilePicture(file);
+      // Salvăm în Firestore
+      await authService.saveUserProfile(state.user.uid, { avatar: base64Image });
       
-      // Actualizăm user-ul în state-ul Vuex
-      // Facem spread operator (...) pentru a păstra restul datelor userului
-      const updatedUser = { ...state.user, photoURL: photoURL };
+      // Actualizăm starea locală
+      const updatedUser = { 
+        ...state.user, 
+        photoURL: base64Image 
+      };
       
       commit('SET_USER', updatedUser);
       return true;
@@ -68,12 +96,33 @@ const actions = {
     }
   },
 
-  // Acțiune pentru a re-hidrata starea la refresh (opțional, dar recomandat)
-  async fetchUser({ commit }, user) {
-    if (user) {
-      const token = await authService.getToken();
-      commit('SET_USER', user);
-      commit('SET_TOKEN', token);
+  // --- FETCH USER (LA REFRESH PAGINĂ) ---
+  // [MODIFICAT] Acum citește și din Firestore, nu doar Auth
+  async fetchUser({ commit }, firebaseUser) {
+    if (firebaseUser) {
+      try {
+        const token = await firebaseUser.getIdToken();
+
+        // 1. IMPORTANT: Citim din nou profilul din Firestore
+        const userProfile = await authService.getUserProfile(firebaseUser.uid);
+
+        // 2. Reconstruim obiectul complet
+        const fullUser = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          emailVerified: firebaseUser.emailVerified,
+          // Dacă există avatar în Firestore, îl folosim
+          photoURL: userProfile?.avatar || null, 
+          ...userProfile
+        };
+
+        commit('SET_USER', fullUser);
+        commit('SET_TOKEN', token);
+      } catch (e) {
+        console.error("Error hydrating user:", e);
+        // Fallback: logăm userul de bază dacă Firestore eșuează
+        commit('SET_USER', firebaseUser);
+      }
     } else {
       commit('RESET_AUTH');
     }
