@@ -1,12 +1,41 @@
-import { auth } from './config';
+import { auth, storage } from './config';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut,
-  onAuthStateChanged 
+  onAuthStateChanged,
+  updateProfile 
 } from "firebase/auth";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+
 
 export const authService = {
+
+  async uploadProfilePicture(file) {
+    const user = auth.currentUser;
+    if (!user) throw new Error("User not authenticated");
+
+    try {
+      // 1. Creăm referința în Storage: profiles/{uid}/avatar
+      // Folosim un timestamp sau numele fișierului pentru a evita problemele de cache, 
+      // dar simplu 'avatar' e ok dacă suprascriem.
+      const storageRef = ref(storage, `profiles/${user.uid}/avatar`);
+
+      // 2. Încărcăm fișierul
+      await uploadBytes(storageRef, file);
+
+      // 3. Obținem URL-ul public
+      const photoURL = await getDownloadURL(storageRef);
+
+      // 4. Actualizăm profilul utilizatorului în Auth
+      await updateProfile(user, { photoURL: photoURL });
+
+      return photoURL;
+    } catch (error) {
+      console.error("Error uploading profile picture:", error);
+      throw error;
+    }
+  },
   // Create a new user
   async signUp(email, password) {
     try {

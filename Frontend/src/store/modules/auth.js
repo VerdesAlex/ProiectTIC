@@ -51,6 +51,23 @@ const actions = {
     commit('RESET_AUTH');
   },
 
+  async updateAvatar({ commit, state }, file) {
+    try {
+      // Apelăm serviciul
+      const photoURL = await authService.uploadProfilePicture(file);
+      
+      // Actualizăm user-ul în state-ul Vuex
+      // Facem spread operator (...) pentru a păstra restul datelor userului
+      const updatedUser = { ...state.user, photoURL: photoURL };
+      
+      commit('SET_USER', updatedUser);
+      return true;
+    } catch (error) {
+      console.error("Failed to update avatar in store:", error);
+      return false;
+    }
+  },
+
   // Acțiune pentru a re-hidrata starea la refresh (opțional, dar recomandat)
   async fetchUser({ commit }, user) {
     if (user) {

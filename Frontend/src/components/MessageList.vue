@@ -9,7 +9,21 @@
 
     <div v-for="(msg, index) in messages" :key="index" :class="['message-row', msg.role]">
       <div :class="['avatar', msg.role]">
-        {{ msg.role === 'user' ? (userEmail?.[0]?.toUpperCase() || 'U') : 'AI' }}
+        <template v-if="msg.role === 'user'">
+          <img 
+            v-if="currentUser?.photoURL" 
+            :src="currentUser.photoURL" 
+            alt="Me" 
+            class="chat-avatar-img"
+          />
+          <span v-else>
+            {{ userEmail?.[0]?.toUpperCase() || 'U' }}
+          </span>
+        </template>
+        
+        <template v-else>
+          <span>AI</span>
+        </template>
       </div>
 
       <div :class="['message-bubble', msg.role]">
@@ -59,6 +73,8 @@
 import { ref, watch, nextTick } from 'vue';
 import { Marked } from "marked";
 import { markedHighlight } from "marked-highlight";
+import { computed } from 'vue'; // [NOU]
+import { useStore } from 'vuex';
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
 import 'highlight.js/styles/github-dark.css';
@@ -71,6 +87,8 @@ const props = defineProps({
 const scrollBox = ref(null);
 const expandedFiles = ref({});
 const copiedIndex = ref(-1);
+const store = useStore();
+const currentUser = computed(() => store.state.auth.user);
 
 // --- LOGICA COPY MESSAGE ---
 const copyMessage = async (text, index) => {
@@ -266,6 +284,26 @@ const scrollToBottom = () => {
 .markdown-body :deep(code) { font-family: 'Consolas', monospace; font-size: 0.9em; }
 .markdown-body :deep(p) { margin-bottom: 0.5em; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
+
+.avatar {
+  overflow: hidden; /* Asigură că imaginea nu iese din chenar */
+  padding: 0; /* Scoatem padding-ul dacă e imagine */
+}
+
+.chat-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Ajustare: Dacă e doar text (inițială sau AI), păstrăm centrarea */
+.avatar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
 
 :global(.dark-theme) .message-bubble.user .bubble-content { background: #343541; border-color: #565869; color: #ececec; }
 :global(.dark-theme) .message-bubble.assistant .bubble-content { background: #444654; border-color: #565869; color: #ececec; }

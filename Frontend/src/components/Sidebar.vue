@@ -27,13 +27,40 @@
         <button class="delete-btn" @click.stop="$emit('delete-chat', chat.id)" title="Delete Chat">×</button>
       </div>
     </div>
-
+    
     <div class="user-footer">
       <div class="theme-switch" @click="$emit('toggle-theme')">
         <span>{{ isDark ? '🌙 Dark Mode' : '☀️ Light Mode' }}</span>
       </div>
-      <div class="user-info">{{ userEmail }}</div>
-      <button @click="$emit('logout')" class="logout-link">Logout</button>
+      
+      <div class="user-profile-section">
+        <div class="avatar-wrapper" @click="triggerFileInput" title="Change Profile Picture">
+          <img 
+            v-if="userPhotoURL" 
+            :src="userPhotoURL" 
+            alt="User Avatar" 
+            class="user-avatar-img"
+          />
+          <div v-else class="user-avatar-placeholder">
+            {{ userEmail?.[0]?.toUpperCase() || 'U' }}
+          </div>
+          
+          <div class="avatar-overlay">📷</div>
+        </div>
+
+        <div class="user-details">
+          <div class="user-info">{{ userEmail }}</div>
+          <button @click="$emit('logout')" class="logout-link">Logout</button>
+        </div>
+      </div>
+
+      <input 
+        type="file" 
+        ref="fileInput" 
+        accept="image/*" 
+        class="hidden-input"
+        @change="handleFileUpload"
+      />
     </div>
 
     <div v-if="showNewChatModal" class="modal-overlay">
@@ -93,7 +120,34 @@ defineProps({
 const emit = defineEmits(['create-chat', 'select-chat', 'delete-chat', 'toggle-theme', 'logout']);
 const store = useStore();
 const searchQuery = ref('');
+const fileInput = ref(null);
 let debounceTimer = null;
+
+// Luăm poza direct din Vuex pentru a fi reactivi la modificări
+const userPhotoURL = computed(() => store.state.auth.user?.photoURL);
+
+// Deschide selectorul de fișiere
+const triggerFileInput = () => {
+  fileInput.value.click();
+};
+
+// Gestionează upload-ul
+const handleFileUpload = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  // Opțional: Validare dimensiune/tip
+  if (!file.type.startsWith('image/')) {
+    alert('Te rog încarcă o imagine.');
+    return;
+  }
+
+  // Trimitem acțiunea către Vuex
+  await store.dispatch('auth/updateAvatar', file);
+  
+  // Reset input pentru a permite re-încărcarea aceluiași fișier dacă e cazul
+  event.target.value = '';
+};
 
 // --- STATE PENTRU MODAL ---
 const showNewChatModal = ref(false);
@@ -249,4 +303,64 @@ const handleSearch = () => {
 .ok-btn { background: #19c37d; border: none; color: white; padding: 8px 16px; border-radius: 5px; cursor: pointer; font-weight: bold; }
 .ok-btn:hover:not(:disabled) { background: #15a569; }
 .ok-btn:disabled { opacity: 0.5; cursor: not-allowed; background: #555; }
+
+.user-profile-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+.avatar-wrapper {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 2px solid #555;
+}
+
+.user-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.user-avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #5c7cfa;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.avatar-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: white;
+  font-size: 1.2rem;
+}
+
+.avatar-wrapper:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.user-details {
+  overflow: hidden;
+}
+
+.hidden-input {
+  display: none;
+}
 </style>
