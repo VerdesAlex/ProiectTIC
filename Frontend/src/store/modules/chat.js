@@ -21,10 +21,23 @@ const mutations = {
   SET_SESSIONS(state, sessions) { state.sessions = sessions; },
   
   SET_MESSAGES(state, dbMessages) {
-    // Păstrăm mesajul local (cel care se generează) vizibil chiar dacă DB-ul trimite update-uri
     if (state.abortController && state.messages.length > 0) {
       const lastLocalMsg = state.messages[state.messages.length - 1];
+      
+      // Dacă ultimul mesaj este local (assistant care scrie...)
       if (lastLocalMsg.isLocal) {
+        // Verificăm dacă DB-ul a trimis deja acest mesaj (ultimul din DB e assistant?)
+        const lastDbMsg = dbMessages.length > 0 ? dbMessages[dbMessages.length - 1] : null;
+        
+        // Dacă ultimul mesaj din DB este tot de la assistant și are conținut, 
+        // înseamnă că DB-ul "a prins din urmă" stream-ul local.
+        // În acest caz, NU mai adăugăm mesajul local, folosim doar ce vine din DB.
+        if (lastDbMsg && lastDbMsg.role === 'assistant') {
+           state.messages = dbMessages;
+           return;
+        }
+
+        // Altfel, dacă DB-ul încă nu are răspunsul AI-ului, îl lipim pe cel local la final
         state.messages = [...dbMessages, lastLocalMsg];
         return;
       }

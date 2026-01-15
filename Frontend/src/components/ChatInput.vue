@@ -193,6 +193,8 @@ textarea { flex: 1; border: none; background: transparent; resize: none; outline
 
 /* Dark theme overrides */
 :global(.dark-theme) .input-area { background: #40414f; border-color: #565869; box-shadow: none; }
+:global(.dark-theme) .textarea { color: #525252 !important; caret-color: #ffffff; }
+:global(.dark-theme) textarea::placeholder {color: #aaa;}
 :global(.dark-theme) .upload-btn:hover:not(:disabled) { background: #565869; color: #ececec; }
 :global(.dark-theme) .attachment-badge { background: #40414f; border-color: #565869; color: #ececec; }
 :global(.dark-theme) .remove-file-btn { color: #aaa; }
