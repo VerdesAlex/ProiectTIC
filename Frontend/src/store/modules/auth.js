@@ -2,7 +2,7 @@ import { authService } from '../../firebase/authService';
 
 const state = {
   user: null,
-  token: null,
+  // token: null,
   isAuthenticated: false,
   error: null
 }
@@ -20,10 +20,10 @@ const actions = {
       // 1. Login cu Firebase
       const user = await authService.login(email, password);
       // 2. Obține token-ul JWT pentru Backend
-      const token = await authService.getToken();
+      // const token = await authService.getToken();
       
       commit('SET_USER', user);
-      commit('SET_TOKEN', token);
+      // commit('SET_TOKEN', token);
       return true; // Succes
     } catch (error) {
       commit('SET_ERROR', error);
@@ -35,10 +35,10 @@ const actions = {
     commit('CLEAR_ERROR');
     try {
       const user = await authService.signUp(email, password);
-      const token = await authService.getToken();
+      // const token = await authService.getToken();
       
       commit('SET_USER', user);
-      commit('SET_TOKEN', token);
+      // commit('SET_TOKEN', token);
       return true;
     } catch (error) {
       commit('SET_ERROR', error);
@@ -54,9 +54,9 @@ const actions = {
   // Acțiune pentru a re-hidrata starea la refresh (opțional, dar recomandat)
   async fetchUser({ commit }, user) {
     if (user) {
-      const token = await authService.getToken();
+      // const token = await authService.getToken();
       commit('SET_USER', user);
-      commit('SET_TOKEN', token);
+      // commit('SET_TOKEN', token);
     } else {
       commit('RESET_AUTH');
     }
